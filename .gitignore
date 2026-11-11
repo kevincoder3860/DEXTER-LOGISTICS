@@ -1,0 +1,17 @@
+# Python
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Local databases and environment configuration
+db.sqlite3
+.env
+**/.env
+
+# Node.js and build output
+node_modules/
+**/node_modules/
+dist/
+**/dist/

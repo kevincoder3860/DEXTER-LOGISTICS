@@ -101,6 +101,9 @@ CORS_ALLOWED_ORIGINS = [
     for origin in os.getenv("CORS_ALLOWED_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173").split(",")
     if origin.strip()
 ]
+production_frontend_origin = "https://dextere-frontend.onrender.com"
+if production_frontend_origin not in CORS_ALLOWED_ORIGINS:
+    CORS_ALLOWED_ORIGINS.append(production_frontend_origin)
 frontend_host = os.getenv("FRONTEND_HOST")
 if frontend_host:
     frontend_origin = frontend_host if frontend_host.startswith(("http://", "https://")) else f"https://{frontend_host}"

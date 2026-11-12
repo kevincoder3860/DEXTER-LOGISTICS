@@ -66,11 +66,12 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "dextere_backend.wsgi.application"
 
+DATABASE_URL = os.environ.get("DATABASE_URL")
 DATABASES = {
     "default": dj_database_url.config(
-        default=f"sqlite:///{BASE_DIR.as_posix()}/db.sqlite3",
+        default=DATABASE_URL or f"sqlite:///{BASE_DIR.as_posix()}/db.sqlite3",
         conn_max_age=600,
-        ssl_require=not DEBUG,
+        ssl_require=bool(DATABASE_URL) and not DEBUG,
     )
 }
 

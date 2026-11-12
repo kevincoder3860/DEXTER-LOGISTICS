@@ -73,8 +73,8 @@ function SiteHeader({ route, setRoute, menuOpen, setMenuOpen }) {
   return (
     <header className="header">
       <a className="brand" href="#home" onClick={closeMenu}>
-        <img src="/dextere-logo.jpg" alt="Dextere Haulers Limited logo" />
-        <span><b>DEXTERE HAULERS</b><small>LIMITED · TRANSPORT & LOGISTICS</small></span>
+        <img src="/dextere-logo.jpg" alt="Dexter Haulers Limited logo" />
+        <span><b>DEXTER HAULERS</b><small>LIMITED · TRANSPORT & LOGISTICS</small></span>
       </a>
       <button className="menuBtn" onClick={() => setMenuOpen(!menuOpen)} aria-label="Toggle menu">
         {menuOpen ? <X /> : <Menu />}
@@ -233,7 +233,7 @@ function PublicWebsite() {
           <div className="sectionHead">
             <p className="eyebrow green">WHAT WE DO</p>
             <h2>Transport solutions built around your journey.</h2>
-            <p>From passenger movement to commercial cargo, Dextere Haulers Limited helps connect people, businesses and destinations.</p>
+            <p>From passenger movement to commercial cargo, Dexter Haulers Limited helps connect people, businesses and destinations.</p>
           </div>
           <div className="serviceGrid">
             {services.map(({ icon: Icon, title, desc }) => (
@@ -335,19 +335,19 @@ function PublicWebsite() {
             <label>Additional details<textarea rows="3" value={formData.additionalDetails} onChange={e => updateField("additionalDetails", e.target.value)} placeholder="Preferred date, cargo details, route or other requirements" /></label>
             <button className="btn primary submitBtn" type="submit" disabled={loading}>{loading ? "Sending..." : "Send enquiry"} <Send size={17} /></button>
             {formMessage.text && <p className={formMessage.type === "success" ? "successNote" : "errorNote"}>{formMessage.text}</p>}
-            {sent && <p className="successNote">Your enquiry has been received and will be reviewed by the Dextere team.</p>}
+            {sent && <p className="successNote">Your enquiry has been received and will be reviewed by the Dexter team.</p>}
           </form>
         </section>
       </main>
 
       <footer>
         <div className="footerBrand">
-          <img src="/dextere-logo.jpg" alt="Dextere Haulers Limited" />
-          <div><b>DEXTERE HAULERS LIMITED</b><small>Connecting Kenya. Delivering Beyond Borders.</small></div>
+          <img src="/dextere-logo.jpg" alt="Dexter Haulers Limited" />
+          <div><b>DEXTER HAULERS LIMITED</b><small>Connecting Kenya. Delivering Beyond Borders.</small></div>
         </div>
         <p>Passenger transport · Goods haulage · Cross‑border logistics</p>
         <div className="footerBottom">
-          <span>© {new Date().getFullYear()} Dextere Haulers Limited. All rights reserved.</span>
+          <span>© {new Date().getFullYear()} Dexter Haulers Limited. All rights reserved.</span>
           <a href="#admin" className="adminLink">Admin Dashboard</a>
         </div>
       </footer>
@@ -520,7 +520,7 @@ function AdminDashboard() {
       <div className="adminLoginShell">
         <form className="adminLoginCard contentCard" onSubmit={handleLogin}>
           <Lock size={30} aria-hidden="true" />
-          <div className="adminBadge">Dextere Haulers</div>
+          <div className="adminBadge">Dexter Haulers</div>
           <h2>Dispatcher Admin</h2>
           <p>Sign in with your superadmin account to manage transport enquiries.</p>
           <label>Username<input autoComplete="username" required value={username} onChange={e => setUsername(e.target.value)} /></label>
@@ -537,7 +537,7 @@ function AdminDashboard() {
     <div className="adminShell">
       <header className="adminHeader">
         <div>
-          <div className="adminBadge">DEXTERE ADMIN</div>
+          <div className="adminBadge">DEXTER ADMIN</div>
           <h2>Transport Enquiries</h2>
         </div>
         <div className="adminHeaderActions">

@@ -1,25 +1,62 @@
-# Dextere Haulers Limited website starter
+# Dextere Haulers Limited
 
-A responsive React + Vite frontend using the supplied DH logo and its green, orange and white brand colours.
+A React + Vite frontend and Django REST API for Dextere Haulers Limited.
 
 ## Run locally
-1. Install Node.js (LTS).
-2. Extract this folder.
-3. Open a terminal in this folder.
-4. Run `npm install`.
-5. Run `npm run dev`.
-6. Open the local URL shown by Vite.
 
-## Build for deployment
-Run `npm run build`. Upload the generated `dist` folder to a static host such as Netlify or Vercel.
+Frontend:
+
+```powershell
+npm install
+npm run dev
+```
+
+Backend, from `backend/`:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env
+python manage.py migrate
+python manage.py runserver
+```
+
+Set `VITE_API_URL` when building the frontend to the backend origin without `/api` (for example, `https://your-api.onrender.com`). The app appends `/api` automatically.
+
+## Deploy to Render
+
+The root `render.yaml` Blueprint defines a free PostgreSQL database, the Django backend, and the React static site. To deploy:
+
+1. Commit and push the changes to the repository's `main` branch.
+2. In Render, choose **New > Blueprint**, connect `kevincoder3860/DEXTER-LOGISTICS`, and select `main`.
+3. Review the resources from `render.yaml`, then click **Deploy Blueprint**.
+
+The backend uses root directory `backend`, runs `pip install -r requirements.txt && python manage.py migrate && python manage.py collectstatic --noinput`, and starts with `gunicorn dextere_backend.wsgi:application --bind 0.0.0.0:$PORT`. The frontend builds with `npm install && npm run build` and publishes `dist`.
+
+The Blueprint generates `SECRET_KEY`, connects `DATABASE_URL` to the database's internal URL, and passes the Render hostnames between the services. The frontend converts `VITE_API_URL` to HTTPS and appends `/api`. The backend adds its `RENDER_EXTERNAL_HOSTNAME` to `ALLOWED_HOSTS` and the frontend hostname to its CORS allowlist.
+
+No secret values need to be committed. To use a custom domain, add its hostname to the backend's `ALLOWED_HOSTS` and its HTTPS origin to `CORS_ALLOWED_ORIGINS` in the Blueprint or Render Environment settings.
+
+After deployment, create a Django superuser from the backend service's Shell:
+
+```sh
+python manage.py createsuperuser
+```
+
+The database migration runs on each deploy as part of the build command. Back up important data before deploying schema changes.
+
+Render's Free web services can spin down after inactivity, and Free PostgreSQL databases expire after 30 days. Use paid resources and a backup plan for production data.
 
 ## Important before going live
-This is the frontend starter, not a complete transport-management backend. The booking form currently displays a demo confirmation and does not transmit customer data. Shipment tracking is a placeholder until connected to a shipment database/API. Add and verify:
+
+The API currently supports transport enquiries and dispatcher management. Verify operational details before launch:
+
 - Official company phone, email, office address and social links.
 - Actual passenger routes, timetables, seat inventory and fares.
 - Actual cargo services, vehicle fleet and operating areas.
-- Backend API and database for customers, bookings, trips, shipments and drivers.
-- Secure authentication and role permissions.
+- Shipment data and tracking updates if live shipment tracking is advertised.
+- Secure production secrets and dispatcher account credentials.
 - M-PESA Daraja integration and payment reconciliation.
 - GPS hardware/mobile-driver location integration if live tracking is required.
 - Privacy notice, terms, cancellation/refund policy and cookie notice.

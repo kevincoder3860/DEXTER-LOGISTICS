@@ -27,7 +27,8 @@ const services = [
   { icon: Package, title: "Parcel and Delivery", desc: "Collection and delivery coordination for parcels and business consignments." },
 ];
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api";
+const configuredApiUrl = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+const API_BASE = `${(/^https?:\/\//i.test(configuredApiUrl) ? configuredApiUrl : `https://${configuredApiUrl}`).replace(/\/+$/, "")}/api`;
 
 const defaultForm = {
   fullName: "",

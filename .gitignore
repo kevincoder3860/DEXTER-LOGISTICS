@@ -9,6 +9,8 @@ __pycache__/
 db.sqlite3
 .env
 **/.env
+staticfiles/
+**/staticfiles/
 
 # Node.js and build output
 node_modules/

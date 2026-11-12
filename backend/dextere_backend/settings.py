@@ -2,14 +2,24 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+import dj_database_url
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-change-me")
-DEBUG = os.getenv("DEBUG", "True").lower() in {"1", "true", "yes", "on"}
-ALLOWED_HOSTS = [host.strip() for host in os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",") if host.strip()]
+DEBUG = "RENDER" not in os.environ
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
+    if host.strip()
+]
+if ".onrender.com" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(".onrender.com")
+render_hostname = os.getenv("RENDER_EXTERNAL_HOSTNAME")
+if render_hostname and render_hostname not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(render_hostname)
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -27,6 +37,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -55,28 +66,13 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "dextere_backend.wsgi.application"
 
-DATABASE_ENGINE = os.getenv("DATABASE_ENGINE", "sqlite").strip().lower()
-
-if DATABASE_ENGINE == "sqlite":
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
-        }
-    }
-elif DATABASE_ENGINE == "postgresql":
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.getenv("POSTGRES_DB", "dextere_haulers"),
-            "USER": os.getenv("POSTGRES_USER", "dextere_user"),
-            "PASSWORD": os.getenv("POSTGRES_PASSWORD", "dextere_password"),
-            "HOST": os.getenv("POSTGRES_HOST", "127.0.0.1"),
-            "PORT": os.getenv("POSTGRES_PORT", "5432"),
-        }
-    }
-else:
-    raise ValueError("DATABASE_ENGINE must be either 'sqlite' or 'postgresql'.")
+DATABASES = {
+    "default": dj_database_url.config(
+        default=f"sqlite:///{BASE_DIR.as_posix()}/db.sqlite3",
+        conn_max_age=600,
+        ssl_require=not DEBUG,
+    )
+}
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -91,13 +87,27 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "/static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
+STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 CORS_ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.getenv("CORS_ALLOWED_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173").split(",")
+    if origin.strip()
+]
+frontend_host = os.getenv("FRONTEND_HOST")
+if frontend_host:
+    frontend_origin = frontend_host if frontend_host.startswith(("http://", "https://")) else f"https://{frontend_host}"
+    if frontend_origin not in CORS_ALLOWED_ORIGINS:
+        CORS_ALLOWED_ORIGINS.append(frontend_origin)
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",")
     if origin.strip()
 ]
 CORS_ALLOW_CREDENTIALS = True

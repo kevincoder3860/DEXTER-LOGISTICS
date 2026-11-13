@@ -93,6 +93,20 @@ class PaystackMpesaPaymentTests(APITestCase):
             quoted_amount=Decimal("1250.50"),
         )
 
+    def test_new_enquiries_get_unique_drx_tracking_references(self):
+        another_enquiry = TransportEnquiry.objects.create(
+            full_name="Brian Mwangi",
+            phone_number="0711222333",
+            pickup_location="Nairobi",
+            destination="Nakuru",
+            type_of_goods="Boxes",
+            estimated_weight="100 kg",
+        )
+
+        self.assertRegex(self.enquiry.reference_number, r"^DRX-\d{8}-[A-F0-9]{4}$")
+        self.assertRegex(another_enquiry.reference_number, r"^DRX-\d{8}-[A-F0-9]{4}$")
+        self.assertNotEqual(self.enquiry.reference_number, another_enquiry.reference_number)
+
     @patch("transport.views.requests.post")
     def test_initiates_charge_using_confirmed_database_amount(self, post):
         post.return_value = Mock(

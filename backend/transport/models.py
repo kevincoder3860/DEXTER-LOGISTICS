@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime
 
 from django.db import models
+from django.utils import timezone
 
 
 class TransportEnquiry(models.Model):
@@ -58,11 +58,10 @@ class TransportEnquiry(models.Model):
         ]
 
     def generate_reference_number(self):
-        today = datetime.now().strftime("%Y%m%d")
-        prefix = "DEX"
+        today = timezone.localdate().strftime("%Y%m%d")
         while True:
-            suffix = uuid.uuid4().hex[:6].upper()
-            candidate = f"{prefix}-{today}-{suffix}"
+            suffix = uuid.uuid4().hex[:4].upper()
+            candidate = f"DRX-{today}-{suffix}"
             if not TransportEnquiry.objects.filter(reference_number=candidate).exists():
                 return candidate
 

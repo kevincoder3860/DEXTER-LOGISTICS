@@ -102,6 +102,7 @@ function PublicWebsite() {
   const [formMessage, setFormMessage] = useState({ type: "", text: "" });
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [submittedReference, setSubmittedReference] = useState("");
 
   // Tracking state
   const [trackingId, setTrackingId] = useState("");
@@ -130,6 +131,8 @@ function PublicWebsite() {
   const handleBooking = async event => {
     event.preventDefault();
     setLoading(true);
+    setSent(false);
+    setSubmittedReference("");
     setFormMessage({ type: "", text: "" });
 
     const payload = {
@@ -169,8 +172,11 @@ function PublicWebsite() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(formatErrorMessage(data?.errors || data?.message || data));
+      const reference = data?.enquiry?.reference_number;
+      if (!reference) throw new Error("Your enquiry was submitted, but no tracking reference was returned. Please contact our team.");
       setSent(true);
-      setFormMessage({ type: "success", text: `Your enquiry was submitted successfully. Reference: ${data?.enquiry?.reference_number || "DEX-NEW"}` });
+      setSubmittedReference(reference);
+      setFormMessage({ type: "success", text: "Your enquiry was submitted successfully." });
       resetForm();
     } catch (error) {
       setSent(false);
@@ -283,7 +289,7 @@ function PublicWebsite() {
             <label htmlFor="trackingId">Tracking ID</label>
             <div className="trackInput">
               <Search />
-              <input id="trackingId" value={trackingId} onChange={e => setTrackingId(e.target.value)} placeholder="e.g. DEX-20261113-A1B2C3" />
+              <input id="trackingId" value={trackingId} onChange={e => setTrackingId(e.target.value)} placeholder="e.g. DRX-20261113-A1B2" />
               <button type="submit" aria-label="Search tracking number"><ArrowRight /></button>
             </div>
             {trackingLoading && <p className="formNote">Loading...</p>}
@@ -345,7 +351,14 @@ function PublicWebsite() {
             <label>Additional details<textarea rows="3" value={formData.additionalDetails} onChange={e => updateField("additionalDetails", e.target.value)} placeholder="Preferred date, cargo details, route or other requirements" /></label>
             <button className="btn primary submitBtn" type="submit" disabled={loading}>{loading ? "Sending..." : "Send enquiry"} <Send size={17} /></button>
             {formMessage.text && <p className={formMessage.type === "success" ? "successNote" : "errorNote"}>{formMessage.text}</p>}
-            {sent && <p className="successNote">Your enquiry has been received and will be reviewed by the Dexter team.</p>}
+            {sent && submittedReference && (
+              <div className="referenceNotice" role="status" aria-live="polite">
+                <strong>Quote tracking reference</strong>
+                <code>{submittedReference}</code>
+                <p>Please copy and keep your reference code safe to track the progress and status of your quote.</p>
+                <a href="#tracking">Track your quote</a>
+              </div>
+            )}
           </form>
         </section>
       </main>
@@ -584,10 +597,23 @@ function AdminDashboard() {
     }
   };
 
-  const openWhatsApp = phone => {
-    const digits = (phone || "").replace(/\D/g, "");
-    if (!digits) return;
-    window.open(`https://wa.me/${digits}`, "_blank", "noopener,noreferrer");
+  const openWhatsApp = enquiry => {
+    const digits = String(enquiry.phone_number || "").replace(/\D/g, "");
+    const phone = digits.startsWith("0")
+      ? `254${digits.slice(1)}`
+      : digits.startsWith("254")
+        ? digits
+        : `254${digits}`;
+    if (!/^254[17]\d{8}$/.test(phone)) {
+      setLoginError("This enquiry does not have a valid Kenyan mobile number for WhatsApp.");
+      return;
+    }
+    const message = `Hello, regarding your transport enquiry ${enquiry.reference_number}, we are following up on your quote. Please let us know if you have any questions.`;
+    window.open(
+      `https://wa.me/${phone}?text=${encodeURIComponent(message)}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
   };
 
   if (!isAdminLoggedIn) {
@@ -663,7 +689,7 @@ function AdminDashboard() {
                   <h3>{selectedEnquiry.full_name}</h3>
                 </div>
                 <div className="detailActions">
-                  <button className="btn outline dark" type="button" onClick={() => openWhatsApp(selectedEnquiry.phone_number)}><MessageSquareText size={15} /> WhatsApp</button>
+                  <button className="btn outline dark" type="button" onClick={() => openWhatsApp(selectedEnquiry)}><MessageSquareText size={15} /> WhatsApp</button>
                   <a href={`tel:${selectedEnquiry.phone_number}`} className="btn outline dark" type="button">Call</a>
                   <button className="btn danger" type="button" onClick={handleDelete}>Delete</button>
                 </div>

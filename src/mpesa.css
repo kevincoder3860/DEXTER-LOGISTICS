@@ -42,3 +42,37 @@
 .mpesaCheckout .btn {
   width: 100%;
 }
+
+.referenceNotice {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid #b9d8c4;
+  border-left: 4px solid var(--green);
+  border-radius: 6px;
+  background: #eef7f1;
+  color: var(--green);
+}
+
+.referenceNotice code {
+  width: fit-content;
+  padding: 6px 9px;
+  border-radius: 4px;
+  background: white;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.referenceNotice p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.referenceNotice a {
+  width: fit-content;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: underline;
+}

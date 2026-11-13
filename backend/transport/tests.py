@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import uuid
 from decimal import Decimal
 from unittest.mock import Mock, patch
 
@@ -111,6 +112,7 @@ class PaystackMpesaPaymentTests(APITestCase):
     def test_initiates_charge_using_confirmed_database_amount(self, post):
         post.return_value = Mock(
             ok=True,
+            status_code=200,
             json=lambda: {
                 "status": True,
                 "message": "Charge initiated",
@@ -131,7 +133,11 @@ class PaystackMpesaPaymentTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data["success"])
         self.assertEqual(
-            post.call_args.kwargs["json"],
+            {
+                key: value
+                for key, value in post.call_args.kwargs["json"].items()
+                if key != "reference"
+            },
             {
                 "email": "amina@example.com",
                 "amount": 125050,
@@ -139,6 +145,7 @@ class PaystackMpesaPaymentTests(APITestCase):
                 "mobile_money": {"phone": "+254712345678", "provider": "mpesa"},
             },
         )
+        uuid.UUID(post.call_args.kwargs["json"]["reference"])
         self.enquiry.refresh_from_db()
         self.assertEqual(self.enquiry.paystack_reference, "paystack-ref-1")
 
@@ -153,6 +160,57 @@ class PaystackMpesaPaymentTests(APITestCase):
         )
         self.assertEqual(duplicate_response.status_code, 409)
         post.assert_called_once()
+
+    @patch("transport.views.requests.post")
+    def test_retry_uses_a_new_paystack_reference(self, post):
+        post.side_effect = lambda *args, **kwargs: Mock(
+            ok=True,
+            status_code=200,
+            json=lambda: {
+                "status": True,
+                "message": "Charge initiated",
+                "data": {"reference": kwargs["json"]["reference"], "status": "pending"},
+            },
+        )
+
+        payload = {
+            "order_id": str(self.enquiry.id),
+            "phone_number": "0712345678",
+        }
+        first_response = self.client.post("/api/payments/paystack-stk/", payload, format="json")
+        first_reference = post.call_args.kwargs["json"]["reference"]
+        self.assertEqual(first_response.status_code, 200)
+
+        TransportEnquiry.objects.filter(id=self.enquiry.id).update(paystack_reference="")
+        second_response = self.client.post("/api/payments/paystack-stk/", payload, format="json")
+        second_reference = post.call_args.kwargs["json"]["reference"]
+
+        self.assertEqual(second_response.status_code, 200)
+        self.assertNotEqual(first_reference, second_reference)
+
+    @patch("transport.views.requests.post")
+    def test_paystack_conflict_message_and_status_are_returned(self, post):
+        post.return_value = Mock(
+            ok=False,
+            status_code=409,
+            json=lambda: {
+                "status": False,
+                "message": "Duplicate reference",
+                "data": {"reference": "duplicate-reference"},
+            },
+        )
+
+        response = self.client.post(
+            "/api/payments/paystack-stk/",
+            {
+                "order_id": str(self.enquiry.id),
+                "phone_number": "0712345678",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["message"], "Duplicate reference")
 
     @patch("transport.views.requests.post")
     def test_rejects_unconfirmed_quote_and_invalid_phone(self, post):

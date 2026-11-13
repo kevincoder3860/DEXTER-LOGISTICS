@@ -3,6 +3,7 @@ import hmac
 import json
 import logging
 import re
+import uuid
 from decimal import Decimal, InvalidOperation
 
 import requests
@@ -145,6 +146,7 @@ def initiate_paystack_mpesa(request):
         )
 
     payload = {
+        "reference": str(uuid.uuid4()),
         "email": enquiry.email,
         "amount": int(enquiry.quoted_amount * 100),
         "currency": "KES",
@@ -176,7 +178,16 @@ def initiate_paystack_mpesa(request):
             {"success": False, "message": "The payment provider returned an invalid response."},
             status=status.HTTP_502_BAD_GATEWAY,
         )
-    if not paystack_response.ok or not paystack_data.get("status"):
+    if paystack_response.status_code != status.HTTP_200_OK:
+        return Response(
+            {
+                "success": False,
+                "message": paystack_data.get("message", "The payment provider rejected the request."),
+                "data": paystack_data.get("data"),
+            },
+            status=paystack_response.status_code,
+        )
+    if not paystack_data.get("status"):
         return Response(
             {
                 "success": False,

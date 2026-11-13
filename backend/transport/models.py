@@ -13,13 +13,20 @@ class TransportEnquiry(models.Model):
         NEW = "NEW", "NEW"
         CONTACTED = "CONTACTED", "CONTACTED"
         QUOTED = "QUOTED", "QUOTED"
+        QUOTE_CONFIRMED = "QUOTE_CONFIRMED", "QUOTE CONFIRMED"
+        APPROVED = "APPROVED", "APPROVED"
         IN_PROGRESS = "IN_PROGRESS", "IN PROGRESS"
         COMPLETED = "COMPLETED", "COMPLETED"
         CANCELLED = "CANCELLED", "CANCELLED"
 
+    class PaymentStatus(models.TextChoices):
+        PENDING = "PENDING", "PENDING"
+        PAID = "PAID", "PAID"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     reference_number = models.CharField(max_length=50, unique=True, blank=True)
     full_name = models.CharField(max_length=255)
+    email = models.EmailField(blank=True, default="")
     phone_number = models.CharField(max_length=50)
     transport_category = models.CharField(max_length=50, choices=TransportCategory.choices, default=TransportCategory.GOODS)
     pickup_location = models.CharField(max_length=255)
@@ -30,6 +37,13 @@ class TransportEnquiry(models.Model):
     number_of_passengers = models.IntegerField(null=True, blank=True)
     additional_details = models.TextField(blank=True, default="")
     status = models.CharField(max_length=30, choices=EnquiryStatus.choices, default=EnquiryStatus.NEW)
+    quoted_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    payment_status = models.CharField(
+        max_length=20,
+        choices=PaymentStatus.choices,
+        default=PaymentStatus.PENDING,
+    )
+    paystack_reference = models.CharField(max_length=100, blank=True, default="")
     admin_notes = models.TextField(blank=True, default="")
     submitted_at = models.DateTimeField(auto_now_add=True)
     created_at = models.DateTimeField(auto_now_add=True)

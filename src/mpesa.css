@@ -1,0 +1,44 @@
+.mpesaCheckout {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid #dce6df;
+  border-radius: 8px;
+  background: #f7faf8;
+}
+
+.mpesaCheckout h4,
+.mpesaCheckout p {
+  margin: 0;
+}
+
+.mpesaCheckout h4 {
+  color: var(--green);
+  font: 800 16px Montserrat;
+}
+
+.mpesaCheckout .mpesaAmount {
+  color: var(--green);
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.mpesaCheckout label {
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mpesaCheckout input {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #dce6df;
+  border-radius: 3px;
+  outline-color: var(--green);
+}
+
+.mpesaCheckout .btn {
+  width: 100%;
+}

@@ -5,12 +5,15 @@ from .models import TransportEnquiry
 
 
 class TransportEnquirySerializer(serializers.ModelSerializer):
+    payment_in_progress = serializers.SerializerMethodField()
+
     class Meta:
         model = TransportEnquiry
         fields = [
             "id",
             "reference_number",
             "full_name",
+            "email",
             "phone_number",
             "transport_category",
             "pickup_location",
@@ -21,6 +24,9 @@ class TransportEnquirySerializer(serializers.ModelSerializer):
             "number_of_passengers",
             "additional_details",
             "status",
+            "quoted_amount",
+            "payment_status",
+            "payment_in_progress",
             "admin_notes",
             "submitted_at",
             "created_at",
@@ -31,11 +37,16 @@ class TransportEnquirySerializer(serializers.ModelSerializer):
             "id",
             "reference_number",
             "status",
+            "quoted_amount",
+            "payment_status",
             "submitted_at",
             "created_at",
             "updated_at",
             "is_unread",
         ]
+
+    def get_payment_in_progress(self, obj):
+        return bool(obj.paystack_reference) and obj.payment_status == TransportEnquiry.PaymentStatus.PENDING
 
     def validate(self, attrs):
         full_name = (attrs.get("full_name") or "").strip()
@@ -103,6 +114,26 @@ class AdminNoteSerializer(serializers.ModelSerializer):
     class Meta:
         model = TransportEnquiry
         fields = ["admin_notes"]
+
+
+class AdminQuoteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TransportEnquiry
+        fields = ["quoted_amount"]
+
+    def validate_quoted_amount(self, value):
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("The quote amount must be greater than zero.")
+        if (
+            self.instance
+            and (
+                self.instance.payment_status == TransportEnquiry.PaymentStatus.PAID
+                or self.instance.paystack_reference
+            )
+            and value != self.instance.quoted_amount
+        ):
+            raise serializers.ValidationError("A quote cannot be changed after payment has been initiated.")
+        return value
 
 
 class TransportEnquiryStatusSerializer(serializers.ModelSerializer):

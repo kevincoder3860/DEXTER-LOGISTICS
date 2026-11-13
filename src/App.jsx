@@ -1,5 +1,6 @@
 // src/App.jsx
 import React, { useEffect, useState } from "react";
+import "./mpesa.css";
 import {
   Truck,
   Bus,
@@ -32,6 +33,7 @@ const API_BASE = `${(/^https?:\/\//i.test(configuredApiUrl) ? configuredApiUrl :
 
 const defaultForm = {
   fullName: "",
+  email: "",
   phoneNumber: "",
   pickupLocation: "",
   destination: "",
@@ -42,7 +44,7 @@ const defaultForm = {
   additionalDetails: "",
 };
 
-const statusOptions = ["NEW", "CONTACTED", "QUOTED", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
+const statusOptions = ["NEW", "CONTACTED", "QUOTED", "QUOTE_CONFIRMED", "APPROVED", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
 
 function App() {
   const [route, setRoute] = useState(window.location.hash === "#admin" ? "admin" : "public");
@@ -132,6 +134,7 @@ function PublicWebsite() {
 
     const payload = {
       full_name: formData.fullName.trim(),
+      email: formData.email.trim(),
       phone_number: formData.phoneNumber.trim(),
       pickup_location: formData.pickupLocation.trim(),
       destination: formData.destination.trim(),
@@ -143,7 +146,7 @@ function PublicWebsite() {
       additional_details: formData.additionalDetails.trim(),
     };
 
-    if (!payload.full_name || !payload.phone_number || !payload.pickup_location || !payload.destination) {
+    if (!payload.full_name || !payload.email || !payload.phone_number || !payload.pickup_location || !payload.destination) {
       setFormMessage({ type: "error", text: "Please complete all required customer details before submitting." });
       setLoading(false);
       return;
@@ -274,27 +277,33 @@ function PublicWebsite() {
           <div>
             <p className="eyebrow green">SHIPMENT UPDATES</p>
             <h2>Track your consignment.</h2>
-            <p>Enter the reference number provided after your booking. Online tracking will become active once the company's shipment database and status‑update process are connected.</p>
+            <p>Enter the reference number provided after your booking to check your quote and payment status.</p>
           </div>
           <form className="trackBox contentCard" onSubmit={handleTrackingSearch}>
             <label htmlFor="trackingId">Tracking ID</label>
             <div className="trackInput">
               <Search />
-              <input id="trackingId" value={trackingId} onChange={e => setTrackingId(e.target.value)} placeholder="e.g. DX-9021" />
+              <input id="trackingId" value={trackingId} onChange={e => setTrackingId(e.target.value)} placeholder="e.g. DEX-20261113-A1B2C3" />
               <button type="submit" aria-label="Search tracking number"><ArrowRight /></button>
             </div>
             {trackingLoading && <p className="formNote">Loading...</p>}
             {trackingError && <p className="errorNote">{trackingError}</p>}
             {trackingData && (
               <div className="trackingCard">
-                <h3>Shipment Status</h3>
-                <p><strong>Tracking ID:</strong> {trackingData.tracking_id}</p>
-                <p><strong>Route:</strong> {trackingData.origin_city} → {trackingData.destination_city}</p>
-                <p><strong>Sender:</strong> {trackingData.sender}</p>
-                <p><strong>Receiver:</strong> {trackingData.receiver}</p>
-                <p><strong>Cargo:</strong> {trackingData.cargo_details}</p>
-                <p><strong>Vehicle / Driver:</strong> {trackingData.vehicle_driver}</p>
-                <p><strong>Status:</strong> {trackingData.status}</p>
+                <h3>Booking Status</h3>
+                <p><strong>Reference:</strong> {trackingData.reference_number}</p>
+                <p><strong>Route:</strong> {trackingData.pickup_location} → {trackingData.destination}</p>
+                <p><strong>Service:</strong> {trackingData.transport_category}</p>
+                <p><strong>Status:</strong> {trackingData.status.replace(/_/g, " ")}</p>
+                {!["QUOTE_CONFIRMED", "APPROVED"].includes(trackingData.status) && trackingData.status !== "CANCELLED" ? (
+                  <p className="formNote">Your quote is under review by our team. Payment will be enabled once confirmed.</p>
+                ) : trackingData.status === "CANCELLED" ? (
+                  <p className="errorNote">This enquiry has been cancelled. Please contact our team for assistance.</p>
+                ) : trackingData.payment_status === "PAID" ? (
+                  <p className="successNote">Payment received. Thank you.</p>
+                ) : (
+                  <MpesaCheckout order={trackingData} />
+                )}
               </div>
             )}
           </form>
@@ -317,6 +326,7 @@ function PublicWebsite() {
             </div>
             <div className="formGrid">
               <label>Full name<input required value={formData.fullName} onChange={e => updateField("fullName", e.target.value)} placeholder="Your name" /></label>
+              <label>Email address<input required type="email" autoComplete="email" value={formData.email} onChange={e => updateField("email", e.target.value)} placeholder="you@example.com" /></label>
               <label>Phone number<input required type="tel" value={formData.phoneNumber} onChange={e => updateField("phoneNumber", e.target.value)} placeholder="+254..." /></label>
               <label>Pickup location<input required value={formData.pickupLocation} onChange={e => updateField("pickupLocation", e.target.value)} placeholder="Town / County" /></label>
               <label>Destination<input required value={formData.destination} onChange={e => updateField("destination", e.target.value)} placeholder="Town / Country" /></label>
@@ -351,6 +361,68 @@ function PublicWebsite() {
           <a href="#admin" className="adminLink">Admin Dashboard</a>
         </div>
       </footer>
+    </div>
+  );
+}
+
+function MpesaCheckout({ order }) {
+  const [phone, setPhone] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState("");
+  const [paymentStarted, setPaymentStarted] = useState(false);
+  const amount = Number(order.total_price);
+
+  const handlePayment = async () => {
+    if (!phone.trim()) {
+      setMessage("Enter the M-Pesa phone number to continue.");
+      setMessageType("error");
+      return;
+    }
+    setLoading(true);
+    setMessage("");
+    try {
+      const response = await fetch(`${API_BASE}/payments/paystack-stk/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          order_id: order.id,
+          phone_number: phone.trim(),
+          amount,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Unable to start M-Pesa payment.");
+      }
+      setMessage("Check your phone for the STK Push.");
+      setMessageType("success");
+      setPaymentStarted(true);
+    } catch (error) {
+      setMessage(error.message || "Unable to start M-Pesa payment. Please try again.");
+      setMessageType("error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="mpesaCheckout">
+      <h4>Pay your confirmed quote</h4>
+      <p className="mpesaAmount">KES {amount.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+      <label htmlFor={`mpesa-phone-${order.id}`}>M-Pesa phone number</label>
+      <input
+        id={`mpesa-phone-${order.id}`}
+        type="tel"
+        value={phone}
+        onChange={event => setPhone(event.target.value)}
+        placeholder="0712345678"
+        autoComplete="tel"
+      />
+      <button className="btn primary" type="button" onClick={handlePayment} disabled={loading || paymentStarted || !Number.isFinite(amount) || amount <= 0}>
+        {loading ? "Sending STK Push..." : paymentStarted ? "STK Push sent" : `Pay KES ${amount.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} via M-Pesa`}
+      </button>
+      {message && <p className={messageType === "success" ? "successNote" : "errorNote"} role="status">{message}</p>}
     </div>
   );
 }
@@ -473,7 +545,10 @@ function AdminDashboard() {
     try {
       const updated = await fetchJson(`${API_BASE}/admin/enquiries/${selectedEnquiry.id}/`, {
         method: "PATCH",
-        body: JSON.stringify({ status: selectedEnquiry.status }),
+        body: JSON.stringify({
+          status: selectedEnquiry.status,
+          quoted_amount: selectedEnquiry.quoted_amount || null,
+        }),
       });
       setEnquiries(prev => prev.map(item => item.id === updated.id ? updated : item));
       setSelectedId(updated.id);
@@ -595,6 +670,7 @@ function AdminDashboard() {
               </div>
               <div className="detailGrid">
                 <div><span>Category</span><strong>{selectedEnquiry.transport_category}</strong></div>
+                <div><span>Email</span><strong>{selectedEnquiry.email || "—"}</strong></div>
                 <div><span>Phone</span><strong>{selectedEnquiry.phone_number}</strong></div>
                 <div><span>Pickup</span><strong>{selectedEnquiry.pickup_location}</strong></div>
                 <div><span>Destination</span><strong>{selectedEnquiry.destination}</strong></div>
@@ -603,8 +679,21 @@ function AdminDashboard() {
                 <div><span>Travel date</span><strong>{selectedEnquiry.travel_date ? new Date(selectedEnquiry.travel_date).toLocaleDateString() : "—"}</strong></div>
                 <div><span>Passengers</span><strong>{selectedEnquiry.number_of_passengers ?? "—"}</strong></div>
                 <div className="fullWidth"><span>Additional details</span><strong>{selectedEnquiry.additional_details || "No additional details provided."}</strong></div>
+                <div><span>Payment status</span><strong>{selectedEnquiry.payment_status || "PENDING"}</strong></div>
               </div>
               <div className="statusBlock">
+                <label>
+                  Confirmed quote amount (KES)
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={selectedEnquiry.quoted_amount ?? ""}
+                    disabled={selectedEnquiry.payment_status === "PAID" || selectedEnquiry.payment_in_progress}
+                    onChange={event => setEnquiries(prev => prev.map(item => item.id === selectedEnquiry.id ? { ...item, quoted_amount: event.target.value } : item))}
+                    placeholder="Enter amount before confirming"
+                  />
+                </label>
                 <label>
                   Update status
                   <select value={selectedEnquiry.status} onChange={e => setEnquiries(prev => prev.map(item => item.id === selectedEnquiry.id ? { ...item, status: e.target.value } : item))}>

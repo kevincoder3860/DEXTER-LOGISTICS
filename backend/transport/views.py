@@ -64,9 +64,20 @@ def public_enquiry_track(request, reference_number):
         "status": enquiry.status,
         "payment_status": enquiry.payment_status,
         "total_price": enquiry.quoted_amount,
+        "quoted_amount": enquiry.quoted_amount,
+        "mpesa_receipt": enquiry.mpesa_receipt,
+        "estimated_arrival": enquiry.estimated_arrival,
         "pickup_location": enquiry.pickup_location,
         "destination": enquiry.destination,
         "transport_category": enquiry.transport_category,
+        "type_of_goods": enquiry.type_of_goods,
+        "estimated_weight": enquiry.estimated_weight,
+        "truck_registration": enquiry.truck_registration,
+        "driver_name": enquiry.driver_name,
+        "driver_phone": enquiry.driver_phone,
+        "current_checkpoint": enquiry.current_checkpoint,
+        "submitted_at": enquiry.submitted_at,
+        "updated_at": enquiry.updated_at,
     })
 
 
@@ -208,8 +219,11 @@ def initiate_paystack_mpesa(request):
         enquiry.paystack_reference = reference
     if transaction.get("status") == "success":
         enquiry.payment_status = TransportEnquiry.PaymentStatus.PAID
+        receipt = transaction.get("mpesa_receipt") or transaction.get("receipt_number")
+        if receipt:
+            enquiry.mpesa_receipt = str(receipt)
     if reference or enquiry.payment_status == TransportEnquiry.PaymentStatus.PAID:
-        enquiry.save(update_fields=["paystack_reference", "payment_status", "updated_at"])
+        enquiry.save(update_fields=["paystack_reference", "payment_status", "mpesa_receipt", "updated_at"])
 
     return Response(
         {
@@ -265,7 +279,10 @@ def paystack_webhook(request):
                 and transaction.get("amount") == expected_amount
             ):
                 enquiry.payment_status = TransportEnquiry.PaymentStatus.PAID
-                enquiry.save(update_fields=["payment_status", "updated_at"])
+                receipt = transaction.get("mpesa_receipt") or transaction.get("receipt_number")
+                if receipt:
+                    enquiry.mpesa_receipt = str(receipt)
+                enquiry.save(update_fields=["payment_status", "mpesa_receipt", "updated_at"])
             elif not enquiry:
                 logger.warning("No pending enquiry payment found for Paystack reference %s", reference)
             elif enquiry.payment_status != TransportEnquiry.PaymentStatus.PAID:
@@ -339,6 +356,16 @@ def admin_enquiry_detail(request, enquiry_id):
 
     if request.method == "PATCH":
         update_data = {}
+        for field_name in (
+            "estimated_arrival",
+            "truck_registration",
+            "driver_name",
+            "driver_phone",
+            "current_checkpoint",
+        ):
+            if field_name in request.data:
+                update_data[field_name] = request.data[field_name] or None if field_name == "estimated_arrival" else request.data[field_name]
+
         if "status" in request.data:
             status_serializer = TransportEnquiryStatusSerializer(
                 enquiry,

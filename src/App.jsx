@@ -3,7 +3,6 @@ import React, { useEffect, useState } from "react";
 import "./mpesa.css";
 import {
   Truck,
-  Bus,
   MapPin,
   Package,
   ShieldCheck,
@@ -19,10 +18,14 @@ import {
   MessageSquareText,
   Lock,
   LogOut,
+  Copy,
+  Check,
+  CalendarClock,
+  Navigation,
+  MessageCircle,
 } from "lucide-react";
 
 const services = [
-  { icon: Bus, title: "Passenger Transport", desc: "Convenient passenger travel with route information, trip enquiries and booking support." },
   { icon: Truck, title: "Goods and Cargo Haulage", desc: "Reliable movement of commercial goods, consignments and general cargo." },
   { icon: Globe2, title: "Cross-Border Logistics", desc: "Transport coordination for journeys between Kenya and neighbouring East African countries." },
   { icon: Package, title: "Parcel and Delivery", desc: "Collection and delivery coordination for parcels and business consignments." },
@@ -39,8 +42,6 @@ const defaultForm = {
   destination: "",
   typeOfGoods: "",
   estimatedWeight: "",
-  travelDate: "",
-  numberOfPassengers: "",
   additionalDetails: "",
 };
 
@@ -66,10 +67,16 @@ function App() {
 
 function SiteHeader({ route, setRoute, menuOpen, setMenuOpen }) {
   const closeMenu = () => setMenuOpen(false);
-  const navigateToView = nextRoute => {
+  const navigateToView = (nextRoute, event) => {
+    event?.preventDefault();
     window.location.hash = nextRoute === "admin" ? "#admin" : "";
     setRoute(nextRoute);
     closeMenu();
+    if (nextRoute === "public") {
+      requestAnimationFrame(() => {
+        document.getElementById("tracking")?.scrollIntoView({ behavior: "smooth" });
+      });
+    }
   };
 
   return (
@@ -87,8 +94,8 @@ function SiteHeader({ route, setRoute, menuOpen, setMenuOpen }) {
         <a href="#coverage" onClick={closeMenu}>Coverage</a>
         <a href="#tracking" onClick={closeMenu}>Track Shipment</a>
         <div className="viewToggle" role="group" aria-label="Choose a view">
-          <button type="button" className={`viewToggleTab ${route === "public" ? "selected" : ""}`} aria-current={route === "public" ? "page" : undefined} onClick={() => navigateToView("public")}>Customer Tracking Portal</button>
-          <button type="button" className={`viewToggleTab ${route === "admin" ? "selected" : ""}`} aria-current={route === "admin" ? "page" : undefined} onClick={() => navigateToView("admin")}>Dispatcher Admin</button>
+          <a href="#tracking" className={`viewToggleTab ${route === "public" ? "selected" : ""}`} aria-current={route === "public" ? "page" : undefined} onClick={event => navigateToView("public", event)}>Customer Tracking Portal</a>
+          <button type="button" className={`viewToggleTab ${route === "admin" ? "selected" : ""}`} aria-current={route === "admin" ? "page" : undefined} onClick={event => navigateToView("admin", event)}>Dispatcher Admin</button>
         </div>
         <a href="#booking" className="navCta" onClick={closeMenu}>Request a Quote</a>
       </nav>
@@ -97,7 +104,6 @@ function SiteHeader({ route, setRoute, menuOpen, setMenuOpen }) {
 }
 
 function PublicWebsite() {
-  const [bookingType, setBookingType] = useState("Goods / Cargo");
   const [formData, setFormData] = useState(defaultForm);
   const [formMessage, setFormMessage] = useState({ type: "", text: "" });
   const [loading, setLoading] = useState(false);
@@ -113,7 +119,6 @@ function PublicWebsite() {
   const updateField = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
   const resetForm = () => {
     setFormData(defaultForm);
-    setBookingType("Goods / Cargo");
   };
 
   const formatErrorMessage = errors => {
@@ -141,11 +146,9 @@ function PublicWebsite() {
       phone_number: formData.phoneNumber.trim(),
       pickup_location: formData.pickupLocation.trim(),
       destination: formData.destination.trim(),
-      transport_category: bookingType,
+      transport_category: "Goods / Cargo",
       type_of_goods: formData.typeOfGoods.trim(),
       estimated_weight: formData.estimatedWeight.trim(),
-      travel_date: formData.travelDate || null,
-      number_of_passengers: formData.numberOfPassengers ? Number(formData.numberOfPassengers) : null,
       additional_details: formData.additionalDetails.trim(),
     };
 
@@ -154,13 +157,8 @@ function PublicWebsite() {
       setLoading(false);
       return;
     }
-    if (bookingType === "Goods / Cargo" && (!payload.type_of_goods || !payload.estimated_weight)) {
+    if (!payload.type_of_goods || !payload.estimated_weight) {
       setFormMessage({ type: "error", text: "Type of goods and estimated weight are required for a Goods / Cargo enquiry." });
-      setLoading(false);
-      return;
-    }
-    if (bookingType === "Passenger" && (!payload.travel_date || payload.number_of_passengers === null || Number(payload.number_of_passengers) < 1)) {
-      setFormMessage({ type: "error", text: "Travel date and number of passengers are required for a Passenger enquiry." });
       setLoading(false);
       return;
     }
@@ -215,8 +213,8 @@ function PublicWebsite() {
           <div className="heroShade" />
           <div className="heroContent">
             <p className="eyebrow"><span /> KENYA · EAST AFRICA · BEYOND</p>
-            <h1>Moving people.<br /><em>Delivering possibilities.</em></h1>
-            <p className="heroText">Dependable passenger transport and goods haulage, connecting destinations across Kenya and beyond its borders.</p>
+            <h1>Moving freight.<br /><em>Delivering possibilities.</em></h1>
+            <p className="heroText">Dependable goods haulage and freight logistics, connecting destinations across Kenya and beyond its borders.</p>
             <div className="heroActions">
               <a className="btn primary" href="#booking">Book / Request a Quote <ArrowRight size={18} /></a>
               <a className="btn outline" href="#services">Explore Services</a>
@@ -242,7 +240,7 @@ function PublicWebsite() {
           <div className="sectionHead">
             <p className="eyebrow green">WHAT WE DO</p>
             <h2>Transport solutions built around your journey.</h2>
-            <p>From passenger movement to commercial cargo, Dexter Haulers Limited helps connect people, businesses and destinations.</p>
+            <p>From commercial cargo to regional freight, Dexter Haulers Limited helps businesses and destinations stay connected.</p>
           </div>
           <div className="serviceGrid">
             {services.map(({ icon: Icon, title, desc }) => (
@@ -293,24 +291,9 @@ function PublicWebsite() {
               <button type="submit" aria-label="Search tracking number"><ArrowRight /></button>
             </div>
             {trackingLoading && <p className="formNote">Loading...</p>}
-            {trackingError && <p className="errorNote">{trackingError}</p>}
+            {trackingError && <p className="errorNote trackingError" role="alert">We couldn&apos;t find that shipment. Please check the Tracking ID and try again.</p>}
             {trackingData && (
-              <div className="trackingCard">
-                <h3>Booking Status</h3>
-                <p><strong>Reference:</strong> {trackingData.reference_number}</p>
-                <p><strong>Route:</strong> {trackingData.pickup_location} → {trackingData.destination}</p>
-                <p><strong>Service:</strong> {trackingData.transport_category}</p>
-                <p><strong>Status:</strong> {trackingData.status.replace(/_/g, " ")}</p>
-                {!["QUOTE_CONFIRMED", "APPROVED"].includes(trackingData.status) && trackingData.status !== "CANCELLED" ? (
-                  <p className="formNote">Your quote is under review by our team. Payment will be enabled once confirmed.</p>
-                ) : trackingData.status === "CANCELLED" ? (
-                  <p className="errorNote">This enquiry has been cancelled. Please contact our team for assistance.</p>
-                ) : trackingData.payment_status === "PAID" ? (
-                  <p className="successNote">Payment received. Thank you.</p>
-                ) : (
-                  <MpesaCheckout order={trackingData} />
-                )}
-              </div>
+              <ShipmentTrackingCard order={trackingData} />
             )}
           </form>
         </section>
@@ -326,27 +309,15 @@ function PublicWebsite() {
           </div>
           <form className="bookingForm contentCard" onSubmit={handleBooking}>
             <div className="formTitle">Transport enquiry</div>
-            <div className="typeSwitch">
-              <button type="button" className={bookingType === "Goods / Cargo" ? "selected" : ""} onClick={() => setBookingType("Goods / Cargo")}>Goods / Cargo</button>
-              <button type="button" className={bookingType === "Passenger" ? "selected" : ""} onClick={() => setBookingType("Passenger")}>Passenger</button>
-            </div>
+            <div className="cargoLabel">Goods / Cargo</div>
             <div className="formGrid">
               <label>Full name<input required value={formData.fullName} onChange={e => updateField("fullName", e.target.value)} placeholder="Your name" /></label>
               <label>Email address<input required type="email" autoComplete="email" value={formData.email} onChange={e => updateField("email", e.target.value)} placeholder="you@example.com" /></label>
               <label>Phone number<input required type="tel" value={formData.phoneNumber} onChange={e => updateField("phoneNumber", e.target.value)} placeholder="+254..." /></label>
               <label>Pickup location<input required value={formData.pickupLocation} onChange={e => updateField("pickupLocation", e.target.value)} placeholder="Town / County" /></label>
               <label>Destination<input required value={formData.destination} onChange={e => updateField("destination", e.target.value)} placeholder="Town / Country" /></label>
-              {bookingType === "Goods / Cargo" ? (
-                <>
-                  <label>Type of goods<input value={formData.typeOfGoods} onChange={e => updateField("typeOfGoods", e.target.value)} placeholder="Describe the cargo" /></label>
-                  <label>Estimated weight<input value={formData.estimatedWeight} onChange={e => updateField("estimatedWeight", e.target.value)} placeholder="e.g. 2 tonnes" /></label>
-                </>
-              ) : (
-                <>
-                  <label>Travel date<input type="date" value={formData.travelDate} onChange={e => updateField("travelDate", e.target.value)} /></label>
-                  <label>Number of passengers<input type="number" min="1" value={formData.numberOfPassengers} onChange={e => updateField("numberOfPassengers", e.target.value)} placeholder="e.g. 2" /></label>
-                </>
-              )}
+              <label>Type of goods<input required value={formData.typeOfGoods} onChange={e => updateField("typeOfGoods", e.target.value)} placeholder="Describe the cargo" /></label>
+              <label>Estimated weight<input required value={formData.estimatedWeight} onChange={e => updateField("estimatedWeight", e.target.value)} placeholder="e.g. 2 tonnes" /></label>
             </div>
             <label>Additional details<textarea rows="3" value={formData.additionalDetails} onChange={e => updateField("additionalDetails", e.target.value)} placeholder="Preferred date, cargo details, route or other requirements" /></label>
             <button className="btn primary submitBtn" type="submit" disabled={loading}>{loading ? "Sending..." : "Send enquiry"} <Send size={17} /></button>
@@ -368,12 +339,163 @@ function PublicWebsite() {
           <img src="/dextere-logo.jpg" alt="Dexter Haulers Limited" />
           <div><b>DEXTER HAULERS LIMITED</b><small>Connecting Kenya. Delivering Beyond Borders.</small></div>
         </div>
-        <p>Passenger transport · Goods haulage · Cross‑border logistics</p>
+        <p>Goods haulage · Freight logistics · Cross‑border transport</p>
         <div className="footerBottom">
           <span>© {new Date().getFullYear()} Dexter Haulers Limited. All rights reserved.</span>
           <a href="#admin" className="adminLink">Admin Dashboard</a>
         </div>
       </footer>
+    </div>
+  );
+}
+
+function ShipmentTrackingCard({ order }) {
+  const [copied, setCopied] = useState(false);
+
+  const formatDate = value => {
+    if (!value) return "To be confirmed";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "To be confirmed";
+    return date.toLocaleString("en-KE", { dateStyle: "medium", timeStyle: "short" });
+  };
+
+  const copyTrackingId = async () => {
+    try {
+      await navigator.clipboard.writeText(order.reference_number);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  const statusMap = {
+    NEW: "Quote Pending",
+    CONTACTED: "Quote Pending",
+    QUOTED: "Quote Pending",
+    QUOTE_CONFIRMED: "Awaiting Payment",
+    APPROVED: "Awaiting Payment",
+    IN_PROGRESS: "In Transit",
+    COMPLETED: "Delivered",
+    CANCELLED: "Cancelled",
+  };
+  const statusLabel = statusMap[order.status] || order.status?.replace(/_/g, " ") || "Processing";
+
+  const statusOrder = ["NEW", "CONTACTED", "QUOTED", "QUOTE_CONFIRMED", "APPROVED", "IN_PROGRESS", "COMPLETED"];
+  const currentRank = statusOrder.indexOf(order.status);
+  const quoteRank = statusOrder.indexOf("QUOTED");
+  const paymentRank = statusOrder.indexOf("APPROVED");
+  const transitRank = statusOrder.indexOf("IN_PROGRESS");
+  const deliveredRank = statusOrder.indexOf("COMPLETED");
+  const isPaid = order.payment_status === "PAID";
+
+  const milestones = [
+    {
+      label: "Enquiry Received",
+      detail: "Your shipment request was submitted",
+      timestamp: order.submitted_at,
+      complete: Boolean(order.submitted_at),
+    },
+    {
+      label: "Quote Issued",
+      detail: order.quoted_amount ? `Quoted at KES ${Number(order.quoted_amount).toLocaleString("en-KE")}` : "Awaiting dispatch quotation",
+      timestamp: currentRank >= quoteRank ? order.updated_at : null,
+      complete: currentRank >= quoteRank,
+    },
+    {
+      label: "Payment Confirmed",
+      detail: isPaid ? "Payment received" : "Payment pending",
+      timestamp: isPaid ? order.updated_at : null,
+      complete: isPaid,
+    },
+    {
+      label: "In Transit",
+      detail: order.current_checkpoint || "Dispatch will add your current checkpoint",
+      timestamp: currentRank >= transitRank ? order.updated_at : null,
+      complete: currentRank >= transitRank,
+    },
+    {
+      label: "Delivered",
+      detail: currentRank >= deliveredRank ? "Shipment completed" : "Awaiting final delivery",
+      timestamp: currentRank >= deliveredRank ? order.updated_at : null,
+      complete: currentRank >= deliveredRank,
+    },
+  ];
+
+  const paymentDue = ["QUOTE_CONFIRMED", "APPROVED"].includes(order.status) && !isPaid;
+  const amount = Number(order.quoted_amount);
+  const dispatchMessage = encodeURIComponent(`Hello Dexter Dispatch, I need support with shipment ${order.reference_number}.`);
+  const dispatchWhatsApp = `https://wa.me/254725674910?text=${dispatchMessage}`;
+
+  return (
+    <div className="trackingCard">
+      <div className="shipmentHeader">
+        <div>
+          <span className="trackingLabel">Tracking ID</span>
+          <div className="trackingReference">
+            <strong>{order.reference_number}</strong>
+            <button type="button" className="copyButton" onClick={copyTrackingId} aria-label="Copy tracking ID">
+              {copied ? <Check size={15} /> : <Copy size={15} />}
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </div>
+        <div className="shipmentHeaderMeta">
+          <span className={`statusPill status-${String(order.status).toLowerCase().replace(/_/g, "-")}`}>{statusLabel}</span>
+          <span className="etaText"><CalendarClock size={16} /> ETA: {formatDate(order.estimated_arrival)}</span>
+        </div>
+      </div>
+
+      <div className="shipmentSummaryGrid">
+        <div className="paymentSummary">
+          <span>Quote Amount</span>
+          <strong>{Number.isFinite(amount) && amount > 0 ? `KES ${amount.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "Quote pending"}</strong>
+          <div className="paymentMeta">
+            <span>Payment: <b className={isPaid ? "paidText" : ""}>{isPaid ? "Paid" : "Pending"}</b></span>
+            {order.mpesa_receipt && <span>Receipt: <b>{order.mpesa_receipt}</b></span>}
+          </div>
+        </div>
+        {paymentDue && <MpesaCheckout order={order} />}
+      </div>
+
+      <div className="shipmentDetailsGrid">
+        <div><span>Origin</span><strong>{order.pickup_location || "—"}</strong></div>
+        <div><span>Destination</span><strong>{order.destination || "—"}</strong></div>
+        <div><span>Freight Category</span><strong>{order.transport_category || "Goods / Cargo"}</strong></div>
+        <div><span>Cargo Description</span><strong>{order.type_of_goods || "—"}</strong></div>
+        <div><span>Truck Registration</span><strong>{order.truck_registration || "Awaiting dispatch assignment"}</strong></div>
+        <div>
+          <span>Driver Contact</span>
+          <strong>{order.driver_name ? `${order.driver_name} · ` : ""}{order.driver_phone || "Awaiting dispatch assignment"}</strong>
+        </div>
+      </div>
+
+      <div className="timelineSection">
+        <h3>Shipment Progress</h3>
+        <div className="shipmentTimeline" aria-label="Shipment progress">
+          {milestones.map(milestone => (
+            <div className={`timelineItem ${milestone.complete ? "complete" : ""}`} key={milestone.label}>
+              <div className="timelineMarker">{milestone.complete ? <Check size={14} /> : null}</div>
+              <div className="timelineContent">
+                <strong>{milestone.label}</strong>
+                <span>{milestone.detail}</span>
+                <time>{milestone.timestamp ? formatDate(milestone.timestamp) : "Pending"}</time>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="dispatchSupport">
+        <div>
+          <b>Need help with this shipment?</b>
+          <span>Contact dispatch and include your Tracking ID.</span>
+        </div>
+        <div className="dispatchActions">
+          <a className="supportButton" href="tel:+254725674910"><Phone size={16} /> Call Dispatch</a>
+          <a className="supportButton whatsapp" href={dispatchWhatsApp} target="_blank" rel="noreferrer"><MessageCircle size={16} /> WhatsApp</a>
+        </div>
+      </div>
     </div>
   );
 }
@@ -561,6 +683,11 @@ function AdminDashboard() {
         body: JSON.stringify({
           status: selectedEnquiry.status,
           quoted_amount: selectedEnquiry.quoted_amount || null,
+          estimated_arrival: selectedEnquiry.estimated_arrival || null,
+          truck_registration: selectedEnquiry.truck_registration || "",
+          driver_name: selectedEnquiry.driver_name || "",
+          driver_phone: selectedEnquiry.driver_phone || "",
+          current_checkpoint: selectedEnquiry.current_checkpoint || "",
         }),
       });
       setEnquiries(prev => prev.map(item => item.id === updated.id ? updated : item));
@@ -663,7 +790,6 @@ function AdminDashboard() {
             <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
               <option value="">All categories</option>
               <option value="Goods / Cargo">Goods / Cargo</option>
-              <option value="Passenger">Passenger</option>
             </select>
           </div>
           <div className="adminList">
@@ -702,8 +828,6 @@ function AdminDashboard() {
                 <div><span>Destination</span><strong>{selectedEnquiry.destination}</strong></div>
                 <div><span>Type of goods</span><strong>{selectedEnquiry.type_of_goods || "—"}</strong></div>
                 <div><span>Estimated weight</span><strong>{selectedEnquiry.estimated_weight || "—"}</strong></div>
-                <div><span>Travel date</span><strong>{selectedEnquiry.travel_date ? new Date(selectedEnquiry.travel_date).toLocaleDateString() : "—"}</strong></div>
-                <div><span>Passengers</span><strong>{selectedEnquiry.number_of_passengers ?? "—"}</strong></div>
                 <div className="fullWidth"><span>Additional details</span><strong>{selectedEnquiry.additional_details || "No additional details provided."}</strong></div>
                 <div><span>Payment status</span><strong>{selectedEnquiry.payment_status || "PENDING"}</strong></div>
               </div>
@@ -727,6 +851,32 @@ function AdminDashboard() {
                   </select>
                 </label>
                 <button className="btn primary" type="button" onClick={handleStatusUpdate}>Save status</button>
+              </div>
+              <div className="dispatchBlock">
+                <label>
+                  Estimated arrival
+                  <input
+                    type="datetime-local"
+                    value={selectedEnquiry.estimated_arrival ? String(selectedEnquiry.estimated_arrival).slice(0, 16) : ""}
+                    onChange={e => setEnquiries(prev => prev.map(item => item.id === selectedEnquiry.id ? { ...item, estimated_arrival: e.target.value } : item))}
+                  />
+                </label>
+                <label>
+                  Truck registration
+                  <input value={selectedEnquiry.truck_registration || ""} onChange={e => setEnquiries(prev => prev.map(item => item.id === selectedEnquiry.id ? { ...item, truck_registration: e.target.value } : item))} placeholder="KDA 123A" />
+                </label>
+                <label>
+                  Driver name
+                  <input value={selectedEnquiry.driver_name || ""} onChange={e => setEnquiries(prev => prev.map(item => item.id === selectedEnquiry.id ? { ...item, driver_name: e.target.value } : item))} placeholder="Driver name" />
+                </label>
+                <label>
+                  Driver phone
+                  <input value={selectedEnquiry.driver_phone || ""} onChange={e => setEnquiries(prev => prev.map(item => item.id === selectedEnquiry.id ? { ...item, driver_phone: e.target.value } : item))} placeholder="+254..." />
+                </label>
+                <label className="fullWidthDispatch">
+                  Current checkpoint / location
+                  <input value={selectedEnquiry.current_checkpoint || ""} onChange={e => setEnquiries(prev => prev.map(item => item.id === selectedEnquiry.id ? { ...item, current_checkpoint: e.target.value } : item))} placeholder="e.g. Sagana weighbridge" />
+                </label>
               </div>
               <div className="notesBlock">
                 <label>

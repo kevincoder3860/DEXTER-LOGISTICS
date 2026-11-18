@@ -27,6 +27,12 @@ class TransportEnquirySerializer(serializers.ModelSerializer):
             "quoted_amount",
             "payment_status",
             "payment_in_progress",
+            "mpesa_receipt",
+            "estimated_arrival",
+            "truck_registration",
+            "driver_name",
+            "driver_phone",
+            "current_checkpoint",
             "admin_notes",
             "submitted_at",
             "created_at",
@@ -43,6 +49,12 @@ class TransportEnquirySerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "is_unread",
+            "mpesa_receipt",
+            "estimated_arrival",
+            "truck_registration",
+            "driver_name",
+            "driver_phone",
+            "current_checkpoint",
         ]
 
     def get_payment_in_progress(self, obj):

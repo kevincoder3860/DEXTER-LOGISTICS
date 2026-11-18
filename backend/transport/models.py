@@ -44,6 +44,12 @@ class TransportEnquiry(models.Model):
         default=PaymentStatus.PENDING,
     )
     paystack_reference = models.CharField(max_length=100, blank=True, default="")
+    mpesa_receipt = models.CharField(max_length=100, blank=True, default="")
+    estimated_arrival = models.DateTimeField(null=True, blank=True)
+    truck_registration = models.CharField(max_length=50, blank=True, default="")
+    driver_name = models.CharField(max_length=255, blank=True, default="")
+    driver_phone = models.CharField(max_length=50, blank=True, default="")
+    current_checkpoint = models.CharField(max_length=255, blank=True, default="")
     admin_notes = models.TextField(blank=True, default="")
     submitted_at = models.DateTimeField(auto_now_add=True)
     created_at = models.DateTimeField(auto_now_add=True)

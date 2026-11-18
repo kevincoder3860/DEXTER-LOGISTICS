@@ -10,6 +10,7 @@ load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-change-me")
 PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
+PAYSTACK_DEFAULT_EMAIL = os.getenv("PAYSTACK_DEFAULT_EMAIL", "dexterlogistics33@gmail.com")
 BLESSED_TEXTS_API_KEY = os.getenv("BLESSED_TEXTS_API_KEY", "")
 BLESSED_TEXTS_SENDER_ID = os.getenv("BLESSED_TEXTS_SENDER_ID", "")
 DEBUG = "RENDER" not in os.environ

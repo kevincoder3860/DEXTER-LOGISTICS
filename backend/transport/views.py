@@ -277,12 +277,6 @@ def initiate_paystack_mpesa(request):
             {"success": False, "message": "This confirmed quote has no valid amount."},
             status=status.HTTP_400_BAD_REQUEST,
         )
-    if not enquiry.email:
-        return Response(
-            {"success": False, "message": "An email address is required to process this payment."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
     if submitted_amount is not None:
         try:
             requested_amount = Decimal(str(submitted_amount))
@@ -314,7 +308,7 @@ def initiate_paystack_mpesa(request):
 
     payload = {
         "reference": str(uuid.uuid4()),
-        "email": enquiry.email,
+        "email": enquiry.email or settings.PAYSTACK_DEFAULT_EMAIL,
         "amount": int(enquiry.quoted_amount * 100),
         "currency": "KES",
         "mobile_money": {"phone": formatted_phone, "provider": "mpesa"},

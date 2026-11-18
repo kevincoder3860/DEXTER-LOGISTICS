@@ -411,6 +411,33 @@ class PaystackMpesaPaymentTests(APITestCase):
         post.assert_called_once()
 
     @patch("transport.views.requests.post")
+    @override_settings(PAYSTACK_DEFAULT_EMAIL="payments@example.com")
+    def test_initiates_mpesa_payment_without_customer_email(self, post):
+        self.enquiry.email = ""
+        self.enquiry.save(update_fields=["email"])
+        post.return_value = Mock(
+            ok=True,
+            status_code=200,
+            json=lambda: {
+                "status": True,
+                "message": "Charge initiated",
+                "data": {"reference": "paystack-default-email-ref", "status": "pending"},
+            },
+        )
+
+        response = self.client.post(
+            "/api/payments/paystack-stk/",
+            {
+                "order_id": str(self.enquiry.id),
+                "phone_number": "0712345678",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(post.call_args.kwargs["json"]["email"], "payments@example.com")
+
+    @patch("transport.views.requests.post")
     def test_retry_uses_a_new_paystack_reference(self, post):
         post.side_effect = lambda *args, **kwargs: Mock(
             ok=True,

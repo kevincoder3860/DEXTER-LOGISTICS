@@ -353,6 +353,41 @@
   text-transform:none;
   letter-spacing:normal;
 }
+.dispatchBlock select {
+  width:100%;
+  max-width:100%;
+  box-sizing:border-box;
+  margin-top:7px;
+  border:1px solid #d7e0db;
+  border-radius:6px;
+  padding:10px 12px;
+  background:#fff;
+  color:#17231c;
+}
+.verifyPaymentButton {
+  width:100%;
+  padding:10px 12px;
+  border:1px solid var(--green);
+  border-radius:5px;
+  background:#fff;
+  color:var(--green);
+  font-size:12px;
+  font-weight:800;
+  cursor:pointer;
+}
+.verifyPaymentButton:disabled {
+  opacity:.65;
+  cursor:not-allowed;
+}
+.saveShipmentButton {
+  margin-top:18px;
+}
+.detailGrid strong,
+.dispatchBlock input,
+.dispatchBlock select {
+  min-width:0;
+  overflow-wrap:anywhere;
+}
 .fullWidthDispatch {
   grid-column:1/-1;
 }
@@ -398,6 +433,77 @@
     justify-content:flex-start;
   }
   .fullWidthDispatch {
+    grid-column:auto;
+  }
+}
+
+.smsSettingsCard {
+  margin-bottom:22px;
+  padding:22px;
+  border:1px solid #dce5ed;
+  border-radius:12px;
+  background:#fff;
+}
+.smsSettingsHeading h3 {
+  margin:12px 0 6px;
+  color:var(--green);
+  font:800 20px Montserrat;
+}
+.smsSettingsHeading p {
+  margin:0;
+  color:var(--muted);
+  font-size:13px;
+  line-height:1.6;
+}
+.smsSettingsForm {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:14px;
+  margin-top:20px;
+}
+.smsSettingsForm label {
+  display:flex;
+  flex-direction:column;
+  gap:7px;
+  color:var(--green);
+  font-size:12px;
+  font-weight:800;
+}
+.smsSettingsForm input {
+  width:100%;
+  min-width:0;
+  box-sizing:border-box;
+  border:1px solid #d7e0db;
+  border-radius:6px;
+  padding:12px 14px;
+  font-size:14px;
+}
+.smsSettingsForm .adminError,
+.smsSuccessBanner,
+.smsSettingsForm .btn {
+  grid-column:1/-1;
+}
+.smsSuccessBanner {
+  margin:0;
+  padding:12px 14px;
+  border:1px solid #b9d8c4;
+  border-radius:6px;
+  background:#eef7f1;
+  color:#17633a;
+  font-size:13px;
+  font-weight:700;
+}
+
+@media(max-width:650px) {
+  .smsSettingsCard {
+    padding:18px;
+  }
+  .smsSettingsForm {
+    grid-template-columns:1fr;
+  }
+  .smsSettingsForm .adminError,
+  .smsSuccessBanner,
+  .smsSettingsForm .btn {
     grid-column:auto;
   }
 }

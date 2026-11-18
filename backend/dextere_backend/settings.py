@@ -10,6 +10,8 @@ load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-change-me")
 PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
+BLESSED_TEXTS_API_KEY = os.getenv("BLESSED_TEXTS_API_KEY", "")
+BLESSED_TEXTS_SENDER_ID = os.getenv("BLESSED_TEXTS_SENDER_ID", "")
 DEBUG = "RENDER" not in os.environ
 ALLOWED_HOSTS = [
     host.strip()
@@ -110,6 +112,10 @@ if frontend_host:
     frontend_origin = frontend_host if frontend_host.startswith(("http://", "https://")) else f"https://{frontend_host}"
     if frontend_origin not in CORS_ALLOWED_ORIGINS:
         CORS_ALLOWED_ORIGINS.append(frontend_origin)
+frontend_url = os.getenv("FRONTEND_URL") or frontend_host or production_frontend_origin
+if not frontend_url.startswith(("http://", "https://")):
+    frontend_url = f"https://{frontend_url}"
+FRONTEND_URL = frontend_url.rstrip("/")
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()
     for origin in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",")

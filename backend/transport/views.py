@@ -9,6 +9,7 @@ from decimal import Decimal, InvalidOperation
 import requests
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -17,21 +18,99 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import TransportEnquiry
+from .models import SystemSettings, TransportEnquiry
 from .permissions import IsSuperAdmin
 from .serializers import (
     AdminLoginSerializer,
-    AdminNoteSerializer,
-    AdminQuoteSerializer,
+    AdminShipmentUpdateSerializer,
+    SmsSettingsSerializer,
     TransportEnquirySerializer,
-    TransportEnquiryStatusSerializer,
 )
+from .sms import get_blessed_texts_credentials
+from .sms_utils import get_tracking_portal_url, send_blessed_sms
 
 logger = logging.getLogger(__name__)
 CONFIRMED_QUOTE_STATUSES = {
+    TransportEnquiry.EnquiryStatus.QUOTED,
     TransportEnquiry.EnquiryStatus.QUOTE_CONFIRMED,
     TransportEnquiry.EnquiryStatus.APPROVED,
 }
+PAYABLE_QUOTE_STATUSES = CONFIRMED_QUOTE_STATUSES | {
+    TransportEnquiry.EnquiryStatus.NEW,
+    TransportEnquiry.EnquiryStatus.CONTACTED,
+}
+PAYMENT_CONFIRMABLE_STATUSES = {
+    TransportEnquiry.EnquiryStatus.QUOTED,
+    TransportEnquiry.EnquiryStatus.QUOTE_CONFIRMED,
+    TransportEnquiry.EnquiryStatus.APPROVED,
+}
+
+
+class PaystackVerificationError(Exception):
+    pass
+
+
+def verify_paystack_transaction(reference):
+    try:
+        response = requests.get(
+            f"https://api.paystack.co/transaction/verify/{reference}",
+            headers={"Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"},
+            timeout=20,
+        )
+    except requests.RequestException as error:
+        logger.exception("Paystack verification request failed for reference %s", reference)
+        raise PaystackVerificationError("Unable to contact Paystack to verify this payment.") from error
+
+    try:
+        payload = response.json()
+    except ValueError as error:
+        raise PaystackVerificationError("Paystack returned an invalid verification response.") from error
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), dict):
+        raise PaystackVerificationError("Paystack returned incomplete verification details.")
+    if response.status_code != status.HTTP_200_OK or not payload.get("status"):
+        raise PaystackVerificationError(payload.get("message", "Paystack could not verify this transaction."))
+    return payload["data"]
+
+
+def reconcile_verified_payment(enquiry, transaction):
+    reference = transaction.get("reference")
+    expected_amount = int(enquiry.quoted_amount * 100) if enquiry.quoted_amount else None
+    if (
+        transaction.get("status") != "success"
+        or reference not in {enquiry.paystack_reference, enquiry.payment_reference}
+        or transaction.get("currency") != "KES"
+        or transaction.get("amount") != expected_amount
+    ):
+        return False
+
+    was_paid = enquiry.payment_status == TransportEnquiry.PaymentStatus.PAID
+    enquiry.payment_status = TransportEnquiry.PaymentStatus.PAID
+    enquiry.payment_reference = reference
+    receipt = transaction.get("receipt_number") or transaction.get("mpesa_receipt")
+    if receipt:
+        enquiry.mpesa_receipt = str(receipt)
+    if enquiry.status in PAYMENT_CONFIRMABLE_STATUSES:
+        enquiry.status = TransportEnquiry.EnquiryStatus.PAYMENT_CONFIRMED
+    enquiry.save(
+        update_fields=[
+            "payment_status",
+            "payment_reference",
+            "mpesa_receipt",
+            "status",
+            "updated_at",
+        ]
+    )
+    if not was_paid:
+        payment_reference = enquiry.payment_reference or enquiry.reference_number
+        send_blessed_sms(
+            enquiry.phone_number,
+            (
+                f"Payment confirmed for tracking ID {enquiry.reference_number}. "
+                f"Reference: {payment_reference}. Track: {get_tracking_portal_url()}"
+            ),
+        )
+    return True
 
 
 @api_view(["POST"])
@@ -40,6 +119,13 @@ def public_enquiry_create(request):
     serializer = TransportEnquirySerializer(data=request.data)
     if serializer.is_valid():
         enquiry = serializer.save()
+        send_blessed_sms(
+            enquiry.phone_number,
+            (
+                f"Thanks {enquiry.full_name}, your enquiry is received. "
+                f"Tracking ID: {enquiry.reference_number}. Track: {get_tracking_portal_url()}"
+            ),
+        )
         return Response(
             {
                 "message": "Enquiry submitted successfully.",
@@ -65,6 +151,7 @@ def public_enquiry_track(request, reference_number):
         "payment_status": enquiry.payment_status,
         "total_price": enquiry.quoted_amount,
         "quoted_amount": enquiry.quoted_amount,
+        "payment_reference": enquiry.payment_reference,
         "mpesa_receipt": enquiry.mpesa_receipt,
         "estimated_arrival": enquiry.estimated_arrival,
         "pickup_location": enquiry.pickup_location,
@@ -79,6 +166,75 @@ def public_enquiry_track(request, reference_number):
         "submitted_at": enquiry.submitted_at,
         "updated_at": enquiry.updated_at,
     })
+
+
+@api_view(["POST"])
+@permission_classes([permissions.AllowAny])
+def verify_paystack_payment(request):
+    order_id = request.data.get("order_id")
+    reference = str(request.data.get("reference", "")).strip()
+    if not order_id or not reference:
+        return Response(
+            {"success": False, "message": "order_id and reference are required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        enquiry = TransportEnquiry.objects.get(id=order_id)
+    except (TransportEnquiry.DoesNotExist, DjangoValidationError, ValueError, TypeError):
+        return Response(
+            {"success": False, "message": "Shipment not found."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if reference not in {enquiry.paystack_reference, enquiry.payment_reference}:
+        return Response(
+            {"success": False, "message": "The payment reference does not match this shipment."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not settings.PAYSTACK_SECRET_KEY:
+        return Response(
+            {"success": False, "message": "Payment verification is not configured."},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    try:
+        transaction = verify_paystack_transaction(reference)
+    except PaystackVerificationError as error:
+        return Response(
+            {"success": False, "message": str(error)},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    if transaction.get("reference") != reference:
+        return Response(
+            {"success": False, "message": "Paystack returned a different transaction reference."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if transaction.get("status") == "success":
+        if not reconcile_verified_payment(enquiry, transaction):
+            logger.warning("Paystack verification data did not match shipment %s", enquiry.reference_number)
+            return Response(
+                {"success": False, "message": "Verified payment details do not match this shipment."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            {"success": True, "payment_status": enquiry.payment_status, "payment_reference": enquiry.payment_reference},
+            status=status.HTTP_200_OK,
+        )
+
+    if transaction.get("status") == "failed":
+        enquiry.payment_status = TransportEnquiry.PaymentStatus.FAILED
+        enquiry.save(update_fields=["payment_status", "updated_at"])
+    return Response(
+        {
+            "success": False,
+            "payment_status": enquiry.payment_status,
+            "message": "Paystack has not confirmed a successful payment.",
+        },
+        status=status.HTTP_200_OK,
+    )
 
 
 @api_view(["POST"])
@@ -101,9 +257,9 @@ def initiate_paystack_mpesa(request):
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    if enquiry.status not in CONFIRMED_QUOTE_STATUSES:
+    if enquiry.status not in PAYABLE_QUOTE_STATUSES:
         return Response(
-            {"success": False, "message": "Payment is available only for confirmed quotes."},
+            {"success": False, "message": "Payment is unavailable for this shipment status."},
             status=status.HTTP_400_BAD_REQUEST,
         )
     if enquiry.payment_status == TransportEnquiry.PaymentStatus.PAID:
@@ -111,7 +267,7 @@ def initiate_paystack_mpesa(request):
             {"success": False, "message": "This quote has already been paid."},
             status=status.HTTP_400_BAD_REQUEST,
         )
-    if enquiry.paystack_reference:
+    if enquiry.paystack_reference and enquiry.payment_status == TransportEnquiry.PaymentStatus.PENDING:
         return Response(
             {"success": False, "message": "A payment request is already in progress. Check your phone before trying again."},
             status=status.HTTP_409_CONFLICT,
@@ -217,13 +373,9 @@ def initiate_paystack_mpesa(request):
     reference = transaction.get("reference")
     if reference:
         enquiry.paystack_reference = reference
-    if transaction.get("status") == "success":
-        enquiry.payment_status = TransportEnquiry.PaymentStatus.PAID
-        receipt = transaction.get("mpesa_receipt") or transaction.get("receipt_number")
-        if receipt:
-            enquiry.mpesa_receipt = str(receipt)
-    if reference or enquiry.payment_status == TransportEnquiry.PaymentStatus.PAID:
-        enquiry.save(update_fields=["paystack_reference", "payment_status", "mpesa_receipt", "updated_at"])
+    if reference:
+        enquiry.payment_status = TransportEnquiry.PaymentStatus.PENDING
+        enquiry.save(update_fields=["paystack_reference", "payment_status", "updated_at"])
 
     return Response(
         {
@@ -265,28 +417,23 @@ def paystack_webhook(request):
             return HttpResponse(status=status.HTTP_400_BAD_REQUEST)
         reference = transaction.get("reference")
         if reference:
-            enquiry = TransportEnquiry.objects.filter(paystack_reference=reference).first()
+            enquiry = TransportEnquiry.objects.filter(
+                Q(paystack_reference=reference) | Q(payment_reference=reference)
+            ).first()
             if event["event"] == "charge.failed":
                 if enquiry and enquiry.payment_status == TransportEnquiry.PaymentStatus.PENDING:
-                    enquiry.paystack_reference = ""
-                    enquiry.save(update_fields=["paystack_reference", "updated_at"])
+                    enquiry.payment_status = TransportEnquiry.PaymentStatus.FAILED
+                    enquiry.save(update_fields=["payment_status", "updated_at"])
                 return HttpResponse(status=status.HTTP_200_OK)
-            expected_amount = int(enquiry.quoted_amount * 100) if enquiry and enquiry.quoted_amount else None
-            if (
-                enquiry
-                and enquiry.payment_status == TransportEnquiry.PaymentStatus.PENDING
-                and transaction.get("currency") == "KES"
-                and transaction.get("amount") == expected_amount
-            ):
-                enquiry.payment_status = TransportEnquiry.PaymentStatus.PAID
-                receipt = transaction.get("mpesa_receipt") or transaction.get("receipt_number")
-                if receipt:
-                    enquiry.mpesa_receipt = str(receipt)
-                enquiry.save(update_fields=["payment_status", "mpesa_receipt", "updated_at"])
-            elif not enquiry:
+            if not enquiry:
                 logger.warning("No pending enquiry payment found for Paystack reference %s", reference)
-            elif enquiry.payment_status != TransportEnquiry.PaymentStatus.PAID:
-                logger.warning("Paystack success event did not match the quote amount for reference %s", reference)
+                return HttpResponse(status=status.HTTP_200_OK)
+            try:
+                verified_transaction = verify_paystack_transaction(reference)
+            except PaystackVerificationError:
+                return HttpResponse(status=status.HTTP_502_BAD_GATEWAY)
+            if not reconcile_verified_payment(enquiry, verified_transaction):
+                logger.warning("Paystack success event could not be reconciled for reference %s", reference)
     return HttpResponse(status=status.HTTP_200_OK)
 
 
@@ -355,72 +502,74 @@ def admin_enquiry_detail(request, enquiry_id):
         return Response(serializer.data)
 
     if request.method == "PATCH":
-        update_data = {}
-        for field_name in (
-            "estimated_arrival",
-            "truck_registration",
-            "driver_name",
-            "driver_phone",
-            "current_checkpoint",
+        update_payload = request.data.copy()
+        if "confirmed_quote_amount" in update_payload:
+            update_payload["quoted_amount"] = update_payload.pop("confirmed_quote_amount")
+        update_serializer = AdminShipmentUpdateSerializer(
+            enquiry,
+            data=update_payload,
+            partial=True,
+        )
+        if not update_serializer.is_valid():
+            return Response(
+                {"message": "Shipment updates could not be saved.", "errors": update_serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        previous_quote = enquiry.quoted_amount
+        previous_payment_status = enquiry.payment_status
+        previous_status = enquiry.status
+        enquiry = update_serializer.save(is_unread=False)
+
+        quote_changed = enquiry.quoted_amount != previous_quote
+        quote_issued = (
+            previous_status != TransportEnquiry.EnquiryStatus.QUOTED
+            and enquiry.status == TransportEnquiry.EnquiryStatus.QUOTED
+        )
+        if enquiry.quoted_amount is not None and (quote_changed or quote_issued):
+            send_blessed_sms(
+                enquiry.phone_number,
+                (
+                    f"Quote for tracking ID {enquiry.reference_number}: "
+                    f"KES {enquiry.quoted_amount:,.2f}. Pay via Paystack on our tracking portal: "
+                    f"{get_tracking_portal_url()}"
+                ),
+            )
+
+        if (
+            previous_payment_status != TransportEnquiry.PaymentStatus.PAID
+            and enquiry.payment_status == TransportEnquiry.PaymentStatus.PAID
         ):
-            if field_name in request.data:
-                update_data[field_name] = request.data[field_name] or None if field_name == "estimated_arrival" else request.data[field_name]
-
-        if "status" in request.data:
-            status_serializer = TransportEnquiryStatusSerializer(
-                enquiry,
-                data={"status": request.data["status"]},
-                partial=True,
+            payment_reference = enquiry.payment_reference or enquiry.reference_number
+            send_blessed_sms(
+                enquiry.phone_number,
+                (
+                    f"Payment confirmed for tracking ID {enquiry.reference_number}. "
+                    f"Reference: {payment_reference}. Track: {get_tracking_portal_url()}"
+                ),
             )
-            if not status_serializer.is_valid():
-                return Response({"message": "Status update failed.", "errors": status_serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
-            update_data["status"] = status_serializer.validated_data["status"]
 
-        if "admin_notes" in request.data:
-            notes_serializer = AdminNoteSerializer(
-                enquiry,
-                data={"admin_notes": request.data["admin_notes"]},
-                partial=True,
+        if (
+            previous_status != enquiry.status
+            and enquiry.status in {
+                TransportEnquiry.EnquiryStatus.IN_PROGRESS,
+                TransportEnquiry.EnquiryStatus.COMPLETED,
+            }
+        ):
+            status_message = [
+                f"Shipment {enquiry.reference_number} is now {enquiry.get_status_display()}."
+            ]
+            if enquiry.current_checkpoint:
+                status_message.append(f"Current location: {enquiry.current_checkpoint}.")
+            if enquiry.truck_registration:
+                status_message.append(f"Truck: {enquiry.truck_registration}.")
+            driver_details = " ".join(
+                value for value in (enquiry.driver_name, enquiry.driver_phone) if value
             )
-            if not notes_serializer.is_valid():
-                return Response({"message": "Note update failed.", "errors": notes_serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
-            update_data["admin_notes"] = notes_serializer.validated_data["admin_notes"]
+            if driver_details:
+                status_message.append(f"Driver: {driver_details}.")
+            status_message.append(f"Track: {get_tracking_portal_url()}")
+            send_blessed_sms(enquiry.phone_number, " ".join(status_message))
 
-        if "quoted_amount" in request.data:
-            quote_serializer = AdminQuoteSerializer(
-                enquiry,
-                data={"quoted_amount": request.data["quoted_amount"]},
-                partial=True,
-            )
-            if not quote_serializer.is_valid():
-                return Response(
-                    {"message": "Quote update failed.", "errors": quote_serializer.errors},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            update_data["quoted_amount"] = quote_serializer.validated_data["quoted_amount"]
-
-        if not update_data:
-            return Response({"message": "No valid update field supplied."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if update_data.get("status") in CONFIRMED_QUOTE_STATUSES:
-            quote_amount = update_data.get("quoted_amount", enquiry.quoted_amount)
-            if quote_amount is None or quote_amount <= 0:
-                return Response(
-                    {"message": "Set a positive quote amount before confirming the quote."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            if enquiry.payment_status == TransportEnquiry.PaymentStatus.PAID and (
-                "quoted_amount" in update_data and update_data["quoted_amount"] != enquiry.quoted_amount
-            ):
-                return Response(
-                    {"message": "A paid quote cannot be changed."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        for field_name, value in update_data.items():
-            setattr(enquiry, field_name, value)
-        enquiry.is_unread = False
-        enquiry.save()
         return Response(TransportEnquirySerializer(enquiry).data)
 
     enquiry.delete()
@@ -441,3 +590,28 @@ def admin_dashboard_stats(request):
         "unread": TransportEnquiry.objects.filter(is_unread=True).count(),
     }
     return Response(stats)
+
+
+@api_view(["GET", "POST"])
+@permission_classes([IsSuperAdmin])
+def admin_sms_settings(request):
+    if request.method == "GET":
+        return Response(get_blessed_texts_credentials())
+
+    serializer = SmsSettingsSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(
+            {"message": "SMS settings are invalid.", "errors": serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    with transaction.atomic():
+        SystemSettings.set_value("BLESSED_TEXTS_API_KEY", serializer.validated_data["api_key"].strip())
+        SystemSettings.set_value("BLESSED_TEXTS_SENDER_ID", serializer.validated_data["sender_id"].strip())
+    return Response(
+        {
+            "message": "SMS settings saved.",
+            **get_blessed_texts_credentials(),
+        },
+        status=status.HTTP_200_OK,
+    )

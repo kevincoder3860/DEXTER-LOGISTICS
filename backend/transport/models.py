@@ -10,18 +10,20 @@ class TransportEnquiry(models.Model):
         PASSENGER = "Passenger", "Passenger"
 
     class EnquiryStatus(models.TextChoices):
-        NEW = "NEW", "NEW"
+        NEW = "NEW", "New Enquiry"
         CONTACTED = "CONTACTED", "CONTACTED"
-        QUOTED = "QUOTED", "QUOTED"
+        QUOTED = "QUOTED", "Quote Issued"
+        PAYMENT_CONFIRMED = "PAYMENT_CONFIRMED", "Payment Confirmed"
         QUOTE_CONFIRMED = "QUOTE_CONFIRMED", "QUOTE CONFIRMED"
         APPROVED = "APPROVED", "APPROVED"
-        IN_PROGRESS = "IN_PROGRESS", "IN PROGRESS"
-        COMPLETED = "COMPLETED", "COMPLETED"
+        IN_PROGRESS = "IN_PROGRESS", "In Transit"
+        COMPLETED = "COMPLETED", "Completed"
         CANCELLED = "CANCELLED", "CANCELLED"
 
     class PaymentStatus(models.TextChoices):
         PENDING = "PENDING", "PENDING"
         PAID = "PAID", "PAID"
+        FAILED = "FAILED", "FAILED"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     reference_number = models.CharField(max_length=50, unique=True, blank=True)
@@ -44,6 +46,7 @@ class TransportEnquiry(models.Model):
         default=PaymentStatus.PENDING,
     )
     paystack_reference = models.CharField(max_length=100, blank=True, default="")
+    payment_reference = models.CharField(max_length=100, blank=True, default="")
     mpesa_receipt = models.CharField(max_length=100, blank=True, default="")
     estimated_arrival = models.DateTimeField(null=True, blank=True)
     truck_registration = models.CharField(max_length=50, blank=True, default="")
@@ -78,3 +81,22 @@ class TransportEnquiry(models.Model):
 
     def __str__(self):
         return f"{self.reference_number} - {self.full_name}"
+
+
+class SystemSettings(models.Model):
+    key = models.CharField(max_length=100, unique=True)
+    value = models.TextField(blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @classmethod
+    def get_value(cls, key, fallback=""):
+        stored_value = cls.objects.filter(key=key).values_list("value", flat=True).first()
+        return stored_value or fallback
+
+    @classmethod
+    def set_value(cls, key, value):
+        setting, _ = cls.objects.update_or_create(key=key, defaults={"value": value})
+        return setting
+
+    def __str__(self):
+        return self.key

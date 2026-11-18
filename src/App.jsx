@@ -36,7 +36,6 @@ const API_BASE = `${(/^https?:\/\//i.test(configuredApiUrl) ? configuredApiUrl :
 
 const defaultForm = {
   fullName: "",
-  email: "",
   phoneNumber: "",
   pickupLocation: "",
   destination: "",
@@ -45,7 +44,15 @@ const defaultForm = {
   additionalDetails: "",
 };
 
-const statusOptions = ["NEW", "CONTACTED", "QUOTED", "QUOTE_CONFIRMED", "APPROVED", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
+const statusOptions = ["NEW", "QUOTED", "PAYMENT_CONFIRMED", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
+const statusLabels = {
+  NEW: "New Enquiry",
+  QUOTED: "Quote Issued",
+  PAYMENT_CONFIRMED: "Payment Confirmed",
+  IN_PROGRESS: "In Transit",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
+};
 
 function App() {
   const [route, setRoute] = useState(window.location.hash === "#admin" ? "admin" : "public");
@@ -142,7 +149,6 @@ function PublicWebsite() {
 
     const payload = {
       full_name: formData.fullName.trim(),
-      email: formData.email.trim(),
       phone_number: formData.phoneNumber.trim(),
       pickup_location: formData.pickupLocation.trim(),
       destination: formData.destination.trim(),
@@ -152,7 +158,7 @@ function PublicWebsite() {
       additional_details: formData.additionalDetails.trim(),
     };
 
-    if (!payload.full_name || !payload.email || !payload.phone_number || !payload.pickup_location || !payload.destination) {
+    if (!payload.full_name || !payload.phone_number || !payload.pickup_location || !payload.destination) {
       setFormMessage({ type: "error", text: "Please complete all required customer details before submitting." });
       setLoading(false);
       return;
@@ -203,6 +209,13 @@ function PublicWebsite() {
     } finally {
       setTrackingLoading(false);
     }
+  };
+
+  const refreshTrackingData = async () => {
+    const response = await fetch(`${API_BASE}/public/track/${trackingId.trim()}/`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data?.detail || data?.message || "Unable to refresh shipment status.");
+    setTrackingData(data);
   };
 
   return (
@@ -293,7 +306,7 @@ function PublicWebsite() {
             {trackingLoading && <p className="formNote">Loading...</p>}
             {trackingError && <p className="errorNote trackingError" role="alert">We couldn&apos;t find that shipment. Please check the Tracking ID and try again.</p>}
             {trackingData && (
-              <ShipmentTrackingCard order={trackingData} />
+              <ShipmentTrackingCard order={trackingData} onRefresh={refreshTrackingData} />
             )}
           </form>
         </section>
@@ -312,7 +325,6 @@ function PublicWebsite() {
             <div className="cargoLabel">Goods / Cargo</div>
             <div className="formGrid">
               <label>Full name<input required value={formData.fullName} onChange={e => updateField("fullName", e.target.value)} placeholder="Your name" /></label>
-              <label>Email address<input required type="email" autoComplete="email" value={formData.email} onChange={e => updateField("email", e.target.value)} placeholder="you@example.com" /></label>
               <label>Phone number<input required type="tel" value={formData.phoneNumber} onChange={e => updateField("phoneNumber", e.target.value)} placeholder="+254..." /></label>
               <label>Pickup location<input required value={formData.pickupLocation} onChange={e => updateField("pickupLocation", e.target.value)} placeholder="Town / County" /></label>
               <label>Destination<input required value={formData.destination} onChange={e => updateField("destination", e.target.value)} placeholder="Town / Country" /></label>
@@ -349,7 +361,7 @@ function PublicWebsite() {
   );
 }
 
-function ShipmentTrackingCard({ order }) {
+function ShipmentTrackingCard({ order, onRefresh }) {
   const [copied, setCopied] = useState(false);
 
   const formatDate = value => {
@@ -372,7 +384,8 @@ function ShipmentTrackingCard({ order }) {
   const statusMap = {
     NEW: "Quote Pending",
     CONTACTED: "Quote Pending",
-    QUOTED: "Quote Pending",
+    QUOTED: "Quote Issued",
+    PAYMENT_CONFIRMED: "Payment Confirmed",
     QUOTE_CONFIRMED: "Awaiting Payment",
     APPROVED: "Awaiting Payment",
     IN_PROGRESS: "In Transit",
@@ -381,13 +394,17 @@ function ShipmentTrackingCard({ order }) {
   };
   const statusLabel = statusMap[order.status] || order.status?.replace(/_/g, " ") || "Processing";
 
-  const statusOrder = ["NEW", "CONTACTED", "QUOTED", "QUOTE_CONFIRMED", "APPROVED", "IN_PROGRESS", "COMPLETED"];
+  const statusOrder = ["NEW", "CONTACTED", "QUOTED", "QUOTE_CONFIRMED", "APPROVED", "PAYMENT_CONFIRMED", "IN_PROGRESS", "COMPLETED"];
   const currentRank = statusOrder.indexOf(order.status);
   const quoteRank = statusOrder.indexOf("QUOTED");
-  const paymentRank = statusOrder.indexOf("APPROVED");
   const transitRank = statusOrder.indexOf("IN_PROGRESS");
   const deliveredRank = statusOrder.indexOf("COMPLETED");
   const isPaid = order.payment_status === "PAID";
+  const paymentStatusLabel = {
+    PENDING: "Pending",
+    PAID: "Paid",
+    FAILED: "Failed",
+  }[order.payment_status] || "Pending";
 
   const milestones = [
     {
@@ -404,7 +421,7 @@ function ShipmentTrackingCard({ order }) {
     },
     {
       label: "Payment Confirmed",
-      detail: isPaid ? "Payment received" : "Payment pending",
+      detail: isPaid ? "Payment received" : "Awaiting payment",
       timestamp: isPaid ? order.updated_at : null,
       complete: isPaid,
     },
@@ -422,8 +439,8 @@ function ShipmentTrackingCard({ order }) {
     },
   ];
 
-  const paymentDue = ["QUOTE_CONFIRMED", "APPROVED"].includes(order.status) && !isPaid;
-  const amount = Number(order.quoted_amount);
+  const amount = Number(order.quoted_amount ?? order.total_price);
+  const paymentDue = amount > 0 && order.payment_status === "PENDING";
   const dispatchMessage = encodeURIComponent(`Hello Dexter Dispatch, I need support with shipment ${order.reference_number}.`);
   const dispatchWhatsApp = `https://wa.me/254725674910?text=${dispatchMessage}`;
 
@@ -451,11 +468,14 @@ function ShipmentTrackingCard({ order }) {
           <span>Quote Amount</span>
           <strong>{Number.isFinite(amount) && amount > 0 ? `KES ${amount.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "Quote pending"}</strong>
           <div className="paymentMeta">
-            <span>Payment: <b className={isPaid ? "paidText" : ""}>{isPaid ? "Paid" : "Pending"}</b></span>
-            {order.mpesa_receipt && <span>Receipt: <b>{order.mpesa_receipt}</b></span>}
+            <span>Payment: <b className={isPaid ? "paidText" : ""}>{paymentStatusLabel}</b></span>
+            {(order.payment_reference || order.paystack_reference) && (
+              <span>Payment Reference: <b>{order.payment_reference || order.paystack_reference}</b></span>
+            )}
+            {order.mpesa_receipt && <span>Receipt Number: <b>{order.mpesa_receipt}</b></span>}
           </div>
+          {paymentDue && <MpesaCheckout order={order} onVerified={onRefresh} />}
         </div>
-        {paymentDue && <MpesaCheckout order={order} />}
       </div>
 
       <div className="shipmentDetailsGrid">
@@ -479,7 +499,7 @@ function ShipmentTrackingCard({ order }) {
               <div className="timelineContent">
                 <strong>{milestone.label}</strong>
                 <span>{milestone.detail}</span>
-                <time>{milestone.timestamp ? formatDate(milestone.timestamp) : "Pending"}</time>
+                {milestone.timestamp && <time>{formatDate(milestone.timestamp)}</time>}
               </div>
             </div>
           ))}
@@ -500,13 +520,14 @@ function ShipmentTrackingCard({ order }) {
   );
 }
 
-function MpesaCheckout({ order }) {
+function MpesaCheckout({ order, onVerified }) {
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("");
   const [paymentStarted, setPaymentStarted] = useState(false);
-  const amount = Number(order.total_price);
+  const [transactionReference, setTransactionReference] = useState("");
+  const amount = Number(order.quoted_amount ?? order.total_price);
 
   const handlePayment = async () => {
     if (!phone.trim()) {
@@ -532,6 +553,7 @@ function MpesaCheckout({ order }) {
       }
       setMessage("Check your phone for the STK Push.");
       setMessageType("success");
+      setTransactionReference(data?.data?.reference || order.paystack_reference || "");
       setPaymentStarted(true);
     } catch (error) {
       setMessage(error.message || "Unable to start M-Pesa payment. Please try again.");
@@ -541,9 +563,41 @@ function MpesaCheckout({ order }) {
     }
   };
 
+  const verifyPayment = async () => {
+    if (!transactionReference) {
+      setMessage("No Paystack transaction reference is available to verify yet.");
+      setMessageType("error");
+      return;
+    }
+    setLoading(true);
+    setMessage("");
+    try {
+      const response = await fetch(`${API_BASE}/payments/paystack-verify/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: order.id, reference: transactionReference }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "Unable to verify payment.");
+      if (!data.success) {
+        setMessage(data.message || "Payment has not been confirmed yet.");
+        setMessageType("error");
+        return;
+      }
+      setMessage("Payment confirmed. Thank you.");
+      setMessageType("success");
+      await onVerified?.();
+    } catch (error) {
+      setMessage(error.message || "Unable to verify payment.");
+      setMessageType("error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="mpesaCheckout">
-      <h4>Pay your confirmed quote</h4>
+      <h4>Pay via Paystack / M-Pesa</h4>
       <p className="mpesaAmount">KES {amount.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
       <label htmlFor={`mpesa-phone-${order.id}`}>M-Pesa phone number</label>
       <input
@@ -555,8 +609,9 @@ function MpesaCheckout({ order }) {
         autoComplete="tel"
       />
       <button className="btn primary" type="button" onClick={handlePayment} disabled={loading || paymentStarted || !Number.isFinite(amount) || amount <= 0}>
-        {loading ? "Sending STK Push..." : paymentStarted ? "STK Push sent" : `Pay KES ${amount.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} via M-Pesa`}
+        {loading ? "Sending STK Push..." : paymentStarted ? "STK Push sent" : `Pay via Paystack / M-Pesa · KES ${amount.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
       </button>
+      {paymentStarted && <button className="verifyPaymentButton" type="button" onClick={verifyPayment} disabled={loading}>{loading ? "Checking..." : "Check Payment Status"}</button>}
       {message && <p className={messageType === "success" ? "successNote" : "errorNote"} role="status">{message}</p>}
     </div>
   );
@@ -569,6 +624,12 @@ function AdminDashboard() {
   const [loginError, setLoginError] = useState("");
   const [token, setToken] = useState("");
   const [loading, setLoading] = useState(false);
+  const [savingUpdates, setSavingUpdates] = useState(false);
+  const [shipmentUpdateSuccess, setShipmentUpdateSuccess] = useState(false);
+  const [smsSettings, setSmsSettings] = useState({ api_key: "", sender_id: "" });
+  const [smsSaving, setSmsSaving] = useState(false);
+  const [smsError, setSmsError] = useState("");
+  const [smsSuccess, setSmsSuccess] = useState(false);
   const [stats, setStats] = useState({ total: 0, unread: 0, new: 0, completed: 0 });
   const [enquiries, setEnquiries] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -620,6 +681,13 @@ function AdminDashboard() {
   };
 
   useEffect(() => { if (isAdminLoggedIn && token) loadDashboard(); }, [isAdminLoggedIn, token, search, statusFilter, categoryFilter]);
+
+  useEffect(() => {
+    if (!isAdminLoggedIn || !token) return;
+    fetchJson(`${API_BASE}/admin/sms-settings/`)
+      .then(data => setSmsSettings({ api_key: data.api_key || "", sender_id: data.sender_id || "" }))
+      .catch(error => setSmsError(error.message || "Unable to load SMS settings."));
+  }, [isAdminLoggedIn, token]);
 
   const handleLogin = async e => {
     e.preventDefault();
@@ -675,39 +743,53 @@ function AdminDashboard() {
 
   const selectedEnquiry = enquiries.find(item => item.id === selectedId) || null;
 
-  const handleStatusUpdate = async () => {
+  const handleSaveShipmentUpdates = async () => {
     if (!selectedEnquiry) return;
+    setSavingUpdates(true);
+    setShipmentUpdateSuccess(false);
+    setLoginError("");
     try {
       const updated = await fetchJson(`${API_BASE}/admin/enquiries/${selectedEnquiry.id}/`, {
         method: "PATCH",
         body: JSON.stringify({
           status: selectedEnquiry.status,
-          quoted_amount: selectedEnquiry.quoted_amount || null,
+          confirmed_quote_amount: selectedEnquiry.quoted_amount || null,
+          payment_status: selectedEnquiry.payment_status || "PENDING",
+          payment_reference: selectedEnquiry.payment_reference || "",
           estimated_arrival: selectedEnquiry.estimated_arrival || null,
           truck_registration: selectedEnquiry.truck_registration || "",
           driver_name: selectedEnquiry.driver_name || "",
           driver_phone: selectedEnquiry.driver_phone || "",
           current_checkpoint: selectedEnquiry.current_checkpoint || "",
+          admin_notes: selectedEnquiry.admin_notes || "",
         }),
       });
       setEnquiries(prev => prev.map(item => item.id === updated.id ? updated : item));
       setSelectedId(updated.id);
+      setShipmentUpdateSuccess(true);
     } catch (error) {
-      setLoginError(error.message || "Status update failed.");
+      setLoginError(error.message || "Shipment updates could not be saved.");
+    } finally {
+      setSavingUpdates(false);
     }
   };
 
-  const handleNoteUpdate = async () => {
-    if (!selectedEnquiry) return;
+  const handleSaveSmsSettings = async event => {
+    event.preventDefault();
+    setSmsSaving(true);
+    setSmsError("");
+    setSmsSuccess(false);
     try {
-      const updated = await fetchJson(`${API_BASE}/admin/enquiries/${selectedEnquiry.id}/`, {
-        method: "PATCH",
-        body: JSON.stringify({ admin_notes: selectedEnquiry.admin_notes || "" }),
+      const data = await fetchJson(`${API_BASE}/admin/sms-settings/`, {
+        method: "POST",
+        body: JSON.stringify(smsSettings),
       });
-      setEnquiries(prev => prev.map(item => item.id === updated.id ? updated : item));
-      setSelectedId(updated.id);
+      setSmsSettings({ api_key: data.api_key || "", sender_id: data.sender_id || "" });
+      setSmsSuccess(true);
     } catch (error) {
-      setLoginError(error.message || "Note update failed.");
+      setSmsError(error.message || "Unable to save SMS settings.");
+    } finally {
+      setSmsSaving(false);
     }
   };
 
@@ -779,13 +861,52 @@ function AdminDashboard() {
         <div className="adminStat contentCard"><span>Unread</span><strong>{stats.unread || 0}</strong></div>
         <div className="adminStat contentCard"><span>Completed</span><strong>{stats.completed || 0}</strong></div>
       </div>
+      <section className="smsSettingsCard contentCard" aria-labelledby="smsSettingsTitle">
+        <div className="smsSettingsHeading">
+          <div>
+            <div className="adminBadge">NOTIFICATIONS</div>
+            <h3 id="smsSettingsTitle">SMS Gateway Settings</h3>
+            <p>Configure the Blessed Texts credentials used by the SMS integration.</p>
+          </div>
+        </div>
+        <form className="smsSettingsForm" onSubmit={handleSaveSmsSettings}>
+          <label>
+            Blessed Texts API Key
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={smsSettings.api_key}
+              onChange={event => {
+                setSmsSettings(prev => ({ ...prev, api_key: event.target.value }));
+                setSmsSuccess(false);
+              }}
+            />
+          </label>
+          <label>
+            Sender ID
+            <input
+              type="text"
+              value={smsSettings.sender_id}
+              onChange={event => {
+                setSmsSettings(prev => ({ ...prev, sender_id: event.target.value }));
+                setSmsSuccess(false);
+              }}
+            />
+          </label>
+          {smsError && <p className="adminError" role="alert">{smsError}</p>}
+          {smsSuccess && <p className="smsSuccessBanner" role="status">SMS gateway settings saved successfully.</p>}
+          <button className="btn primary" type="submit" disabled={smsSaving}>
+            {smsSaving ? "Saving..." : "Save SMS Settings"}
+          </button>
+        </form>
+      </section>
       <main className="adminWorkspace">
         <aside className="adminSidebar contentCard">
           <div className="adminFilters">
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by customer or phone" />
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
               <option value="">All statuses</option>
-              {statusOptions.map(status => (<option key={status} value={status}>{status.replace("_", " ")}</option>))}
+              {statusOptions.map(status => (<option key={status} value={status}>{statusLabels[status]}</option>))}
             </select>
             <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
               <option value="">All categories</option>
@@ -799,7 +920,7 @@ function AdminDashboard() {
                 <strong>{enquiry.full_name}</strong>
                 <small>{enquiry.phone_number}</small>
                 <span>{enquiry.transport_category}</span>
-                <div className="listMeta"><span>{enquiry.status}</span><span>{new Date(enquiry.submitted_at).toLocaleDateString()}</span></div>
+                <div className="listMeta"><span>{statusLabels[enquiry.status] || enquiry.status}</span><span>{new Date(enquiry.submitted_at).toLocaleDateString()}</span></div>
               </button>
             ))}
           </div>
@@ -829,7 +950,7 @@ function AdminDashboard() {
                 <div><span>Type of goods</span><strong>{selectedEnquiry.type_of_goods || "—"}</strong></div>
                 <div><span>Estimated weight</span><strong>{selectedEnquiry.estimated_weight || "—"}</strong></div>
                 <div className="fullWidth"><span>Additional details</span><strong>{selectedEnquiry.additional_details || "No additional details provided."}</strong></div>
-                <div><span>Payment status</span><strong>{selectedEnquiry.payment_status || "PENDING"}</strong></div>
+                <div><span>Payment Reference</span><strong>{selectedEnquiry.payment_reference || selectedEnquiry.paystack_reference || "—"}</strong></div>
               </div>
               <div className="statusBlock">
                 <label>
@@ -847,12 +968,23 @@ function AdminDashboard() {
                 <label>
                   Update status
                   <select value={selectedEnquiry.status} onChange={e => setEnquiries(prev => prev.map(item => item.id === selectedEnquiry.id ? { ...item, status: e.target.value } : item))}>
-                    {statusOptions.map(status => (<option key={status} value={status}>{status.replace("_", " ")}</option>))}
+                    {statusOptions.map(status => (<option key={status} value={status}>{statusLabels[status]}</option>))}
                   </select>
                 </label>
-                <button className="btn primary" type="button" onClick={handleStatusUpdate}>Save status</button>
               </div>
               <div className="dispatchBlock">
+                <label>
+                  Payment status
+                  <select value={selectedEnquiry.payment_status || "PENDING"} onChange={e => setEnquiries(prev => prev.map(item => item.id === selectedEnquiry.id ? { ...item, payment_status: e.target.value } : item))}>
+                    <option value="PENDING">Pending</option>
+                    <option value="PAID">Paid</option>
+                    <option value="FAILED">Failed</option>
+                  </select>
+                </label>
+                <label>
+                  Payment reference
+                  <input value={selectedEnquiry.payment_reference || ""} onChange={e => setEnquiries(prev => prev.map(item => item.id === selectedEnquiry.id ? { ...item, payment_reference: e.target.value } : item))} placeholder="Paystack / M-Pesa reference" />
+                </label>
                 <label>
                   Estimated arrival
                   <input
@@ -883,8 +1015,12 @@ function AdminDashboard() {
                   Admin notes
                   <textarea value={selectedEnquiry.admin_notes || ""} onChange={e => setEnquiries(prev => prev.map(item => item.id === selectedEnquiry.id ? { ...item, admin_notes: e.target.value } : item))} rows="5" placeholder="Add private notes for the client follow‑up" />
                 </label>
-                <button className="btn primary" type="button" onClick={handleNoteUpdate}>Save notes</button>
               </div>
+              {loginError && <p className="adminError" role="alert">{loginError}</p>}
+              {shipmentUpdateSuccess && <p className="successNote" role="status">Shipment updates saved.</p>}
+              <button className="btn primary saveShipmentButton" type="button" onClick={handleSaveShipmentUpdates} disabled={savingUpdates}>
+                {savingUpdates ? "Saving..." : "Save Shipment Updates"}
+              </button>
             </>
           )}
         </section>

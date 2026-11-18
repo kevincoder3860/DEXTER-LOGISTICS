@@ -27,6 +27,7 @@ class TransportEnquirySerializer(serializers.ModelSerializer):
             "quoted_amount",
             "payment_status",
             "payment_in_progress",
+            "payment_reference",
             "mpesa_receipt",
             "estimated_arrival",
             "truck_registration",
@@ -45,6 +46,7 @@ class TransportEnquirySerializer(serializers.ModelSerializer):
             "status",
             "quoted_amount",
             "payment_status",
+            "payment_reference",
             "submitted_at",
             "created_at",
             "updated_at",
@@ -122,6 +124,11 @@ class AdminLoginSerializer(serializers.Serializer):
         return {"user": user}
 
 
+class SmsSettingsSerializer(serializers.Serializer):
+    api_key = serializers.CharField(max_length=512, allow_blank=True)
+    sender_id = serializers.CharField(max_length=64, allow_blank=True)
+
+
 class AdminNoteSerializer(serializers.ModelSerializer):
     class Meta:
         model = TransportEnquiry
@@ -146,6 +153,63 @@ class AdminQuoteSerializer(serializers.ModelSerializer):
         ):
             raise serializers.ValidationError("A quote cannot be changed after payment has been initiated.")
         return value
+
+
+class AdminShipmentUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TransportEnquiry
+        fields = [
+            "status",
+            "quoted_amount",
+            "payment_status",
+            "payment_reference",
+            "estimated_arrival",
+            "truck_registration",
+            "driver_name",
+            "driver_phone",
+            "current_checkpoint",
+            "admin_notes",
+        ]
+
+    def validate(self, attrs):
+        enquiry = self.instance
+        amount = attrs.get("quoted_amount", enquiry.quoted_amount)
+        status_value = attrs.get("status", enquiry.status)
+        payment_status = attrs.get("payment_status", enquiry.payment_status)
+
+        if "quoted_amount" in attrs and attrs["quoted_amount"] != enquiry.quoted_amount and (
+            enquiry.payment_status == TransportEnquiry.PaymentStatus.PAID
+            or enquiry.paystack_reference
+        ):
+            raise serializers.ValidationError({
+                "quoted_amount": "A quote cannot be changed after payment has been initiated."
+            })
+        if status_value == TransportEnquiry.EnquiryStatus.QUOTED and (amount is None or amount <= 0):
+            raise serializers.ValidationError({
+                "quoted_amount": "Set a positive quote amount before issuing the quote."
+            })
+        if status_value == TransportEnquiry.EnquiryStatus.PAYMENT_CONFIRMED and (
+            payment_status != TransportEnquiry.PaymentStatus.PAID
+        ):
+            raise serializers.ValidationError({
+                "payment_status": "Mark payment as paid before confirming payment."
+            })
+        if payment_status == TransportEnquiry.PaymentStatus.PAID and (amount is None or amount <= 0):
+            raise serializers.ValidationError({
+                "quoted_amount": "Set a positive quote amount before marking payment as paid."
+            })
+        if (
+            "payment_status" in attrs
+            and payment_status == TransportEnquiry.PaymentStatus.PAID
+            and status_value in {
+                TransportEnquiry.EnquiryStatus.NEW,
+                TransportEnquiry.EnquiryStatus.QUOTED,
+                TransportEnquiry.EnquiryStatus.QUOTE_CONFIRMED,
+                TransportEnquiry.EnquiryStatus.APPROVED,
+            }
+        ):
+            attrs["status"] = TransportEnquiry.EnquiryStatus.PAYMENT_CONFIRMED
+        return attrs
 
 
 class TransportEnquiryStatusSerializer(serializers.ModelSerializer):

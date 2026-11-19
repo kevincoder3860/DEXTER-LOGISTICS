@@ -36,6 +36,7 @@ const API_BASE = `${(/^https?:\/\//i.test(configuredApiUrl) ? configuredApiUrl :
 
 const defaultForm = {
   fullName: "",
+  email: "",
   phoneNumber: "",
   pickupLocation: "",
   destination: "",
@@ -149,6 +150,7 @@ function PublicWebsite() {
 
     const payload = {
       full_name: formData.fullName.trim(),
+      email: formData.email.trim(),
       phone_number: formData.phoneNumber.trim(),
       pickup_location: formData.pickupLocation.trim(),
       destination: formData.destination.trim(),
@@ -158,7 +160,7 @@ function PublicWebsite() {
       additional_details: formData.additionalDetails.trim(),
     };
 
-    if (!payload.full_name || !payload.phone_number || !payload.pickup_location || !payload.destination) {
+    if (!payload.full_name || !payload.email || !payload.phone_number || !payload.pickup_location || !payload.destination) {
       setFormMessage({ type: "error", text: "Please complete all required customer details before submitting." });
       setLoading(false);
       return;
@@ -325,6 +327,7 @@ function PublicWebsite() {
             <div className="cargoLabel">Goods / Cargo</div>
             <div className="formGrid">
               <label>Full name<input required value={formData.fullName} onChange={e => updateField("fullName", e.target.value)} placeholder="Your name" /></label>
+              <label>Email address<input required type="email" autoComplete="email" value={formData.email} onChange={e => updateField("email", e.target.value)} placeholder="you@example.com" /></label>
               <label>Phone number<input required type="tel" value={formData.phoneNumber} onChange={e => updateField("phoneNumber", e.target.value)} placeholder="+254..." /></label>
               <label>Pickup location<input required value={formData.pickupLocation} onChange={e => updateField("pickupLocation", e.target.value)} placeholder="Town / County" /></label>
               <label>Destination<input required value={formData.destination} onChange={e => updateField("destination", e.target.value)} placeholder="Town / Country" /></label>

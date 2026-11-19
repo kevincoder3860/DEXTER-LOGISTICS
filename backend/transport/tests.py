@@ -7,11 +7,50 @@ from decimal import Decimal
 from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.test import override_settings
 from rest_framework.test import APITestCase
 
+from .email_utils import send_shipment_email
 from .models import SystemSettings, TransportEnquiry
 from .sms_utils import send_blessed_sms
+
+
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    DEFAULT_FROM_EMAIL="dispatch@example.com",
+)
+class ShipmentEmailUtilityTests(APITestCase):
+    def test_sends_email_from_configured_default_sender(self):
+        result = send_shipment_email(
+            "customer@example.com",
+            "Shipment update",
+            "Your shipment is in transit.",
+        )
+
+        self.assertTrue(result)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].from_email, "dispatch@example.com")
+        self.assertEqual(mail.outbox[0].to, ["customer@example.com"])
+        self.assertEqual(mail.outbox[0].subject, "Shipment update")
+        self.assertEqual(mail.outbox[0].body, "Your shipment is in transit.")
+
+    def test_missing_or_invalid_recipient_is_skipped(self):
+        self.assertFalse(send_shipment_email("", "Shipment update", "Message"))
+        self.assertFalse(send_shipment_email("not-an-email", "Shipment update", "Message"))
+        self.assertEqual(mail.outbox, [])
+
+    @patch("transport.email_utils.send_mail", side_effect=OSError("SMTP unavailable"))
+    def test_email_failure_is_logged_and_does_not_raise(self, send_mail):
+        with self.assertLogs("transport.email_utils", level="ERROR"):
+            result = send_shipment_email(
+                "customer@example.com",
+                "Shipment update",
+                "Your shipment is in transit.",
+            )
+
+        self.assertFalse(result)
+        self.assertFalse(send_mail.call_args.kwargs["fail_silently"])
 
 
 class AdminSuperuserAccessTests(APITestCase):
@@ -223,8 +262,9 @@ class BlessedTextsSmsTests(APITestCase):
         self.assertFalse(send_blessed_sms("0722123456", "Test message"))
 
     @patch("transport.views.send_blessed_sms")
+    @patch("transport.views.send_shipment_email")
     @override_settings(FRONTEND_URL="https://freight.example")
-    def test_new_enquiry_sends_tracking_id_and_portal_link(self, send_sms):
+    def test_new_enquiry_sends_tracking_id_and_portal_link(self, send_email, send_sms):
         response = self.client.post(
             "/api/public/enquiries/",
             {
@@ -241,6 +281,13 @@ class BlessedTextsSmsTests(APITestCase):
 
         self.assertEqual(response.status_code, 201)
         reference = response.data["enquiry"]["reference_number"]
+        send_email.assert_called_once()
+        email_body = send_email.call_args.args[2]
+        self.assertEqual(send_email.call_args.args[0], "amina@example.com")
+        self.assertIn(reference, email_body)
+        self.assertIn("Origin: Nairobi", email_body)
+        self.assertIn("Destination: Mombasa", email_body)
+        self.assertIn("https://freight.example/#tracking", email_body)
         send_sms.assert_called_once()
         self.assertEqual(send_sms.call_args.args[0], "0722123456")
         self.assertIn(reference, send_sms.call_args.args[1])
@@ -248,7 +295,7 @@ class BlessedTextsSmsTests(APITestCase):
 
 
 @override_settings(FRONTEND_URL="https://freight.example")
-class ShipmentSmsNotificationTests(APITestCase):
+class ShipmentNotificationTests(APITestCase):
     def setUp(self):
         user_model = get_user_model()
         self.admin = user_model.objects.create_superuser(
@@ -259,6 +306,7 @@ class ShipmentSmsNotificationTests(APITestCase):
         self.client.force_authenticate(user=self.admin)
         self.enquiry = TransportEnquiry.objects.create(
             full_name="Amina Otieno",
+            email="amina@example.com",
             phone_number="0722123456",
             pickup_location="Nairobi",
             destination="Mombasa",
@@ -266,8 +314,9 @@ class ShipmentSmsNotificationTests(APITestCase):
             status=TransportEnquiry.EnquiryStatus.NEW,
         )
 
+    @patch("transport.views.send_shipment_email")
     @patch("transport.views.send_blessed_sms")
-    def test_quote_and_dispatch_status_changes_send_relevant_updates(self, send_sms):
+    def test_quote_and_dispatch_status_changes_send_relevant_updates(self, send_sms, send_email):
         quote_response = self.client.patch(
             f"/api/admin/enquiries/{self.enquiry.id}/",
             {"status": "QUOTED", "confirmed_quote_amount": "1250.50"},
@@ -277,6 +326,9 @@ class ShipmentSmsNotificationTests(APITestCase):
         self.assertEqual(send_sms.call_count, 1)
         self.assertIn("KES 1,250.50", send_sms.call_args.args[1])
         self.assertIn("https://freight.example/#tracking", send_sms.call_args.args[1])
+        self.assertEqual(send_email.call_count, 1)
+        self.assertIn("KES 1,250.50", send_email.call_args.args[2])
+        self.assertIn("complete payment", send_email.call_args.args[2])
 
         dispatch_response = self.client.patch(
             f"/api/admin/enquiries/{self.enquiry.id}/",
@@ -296,6 +348,12 @@ class ShipmentSmsNotificationTests(APITestCase):
         self.assertIn("KDA 123A", dispatch_message)
         self.assertIn("Driver One 0711222333", dispatch_message)
         self.assertIn("Sagana", dispatch_message)
+        self.assertEqual(send_email.call_count, 2)
+        dispatch_email = send_email.call_args.args[2]
+        self.assertIn("In Transit", dispatch_email)
+        self.assertIn("KDA 123A", dispatch_email)
+        self.assertIn("Driver One 0711222333", dispatch_email)
+        self.assertIn("Sagana", dispatch_email)
 
         completed_response = self.client.patch(
             f"/api/admin/enquiries/{self.enquiry.id}/",
@@ -305,9 +363,12 @@ class ShipmentSmsNotificationTests(APITestCase):
         self.assertEqual(completed_response.status_code, 200, completed_response.data)
         self.assertEqual(send_sms.call_count, 3)
         self.assertIn("Completed", send_sms.call_args.args[1])
+        self.assertEqual(send_email.call_count, 3)
+        self.assertIn("Completed", send_email.call_args.args[2])
 
+    @patch("transport.views.send_shipment_email")
     @patch("transport.views.send_blessed_sms")
-    def test_admin_marking_payment_paid_sends_confirmation_and_reference(self, send_sms):
+    def test_admin_marking_payment_paid_sends_confirmation_and_reference(self, send_sms, send_email):
         self.enquiry.quoted_amount = Decimal("1250.50")
         self.enquiry.status = TransportEnquiry.EnquiryStatus.QUOTED
         self.enquiry.save(update_fields=["quoted_amount", "status"])
@@ -325,6 +386,10 @@ class ShipmentSmsNotificationTests(APITestCase):
         self.assertEqual(response.status_code, 200, response.data)
         send_sms.assert_called_once()
         self.assertIn("manual-payment-ref", send_sms.call_args.args[1])
+        send_email.assert_called_once()
+        payment_email = send_email.call_args.args[2]
+        self.assertIn("KES 1,250.50", payment_email)
+        self.assertIn("manual-payment-ref", payment_email)
 
 
 @override_settings(PAYSTACK_SECRET_KEY="test-paystack-secret")
@@ -525,7 +590,8 @@ class PaystackMpesaPaymentTests(APITestCase):
 
     @patch("transport.views.requests.get")
     @patch("transport.views.send_blessed_sms")
-    def test_verified_success_webhook_marks_payment_as_paid(self, send_sms, get):
+    @patch("transport.views.send_shipment_email")
+    def test_verified_success_webhook_marks_payment_as_paid(self, send_email, send_sms, get):
         self.enquiry.paystack_reference = "paystack-ref-2"
         self.enquiry.save(update_fields=["paystack_reference"])
         get.return_value = Mock(
@@ -575,10 +641,14 @@ class PaystackMpesaPaymentTests(APITestCase):
         self.assertEqual(self.enquiry.status, TransportEnquiry.EnquiryStatus.PAYMENT_CONFIRMED)
         send_sms.assert_called_once()
         self.assertIn("paystack-ref-2", send_sms.call_args.args[1])
+        send_email.assert_called_once()
+        self.assertIn("KES 1,250.50", send_email.call_args.args[2])
+        self.assertIn("paystack-ref-2", send_email.call_args.args[2])
 
     @patch("transport.views.requests.get")
     @patch("transport.views.send_blessed_sms")
-    def test_payment_verification_endpoint_reconciles_successful_transaction(self, send_sms, get):
+    @patch("transport.views.send_shipment_email")
+    def test_payment_verification_endpoint_reconciles_successful_transaction(self, send_email, send_sms, get):
         self.enquiry.paystack_reference = "verified-ref"
         self.enquiry.save(update_fields=["paystack_reference"])
         get.return_value = Mock(
@@ -614,6 +684,8 @@ class PaystackMpesaPaymentTests(APITestCase):
         self.assertEqual(self.enquiry.mpesa_receipt, "RCP456")
         send_sms.assert_called_once()
         self.assertIn("verified-ref", send_sms.call_args.args[1])
+        send_email.assert_called_once()
+        self.assertIn("verified-ref", send_email.call_args.args[2])
 
     @patch("transport.views.requests.get")
     def test_payment_verification_rejects_non_success_transaction(self, get):

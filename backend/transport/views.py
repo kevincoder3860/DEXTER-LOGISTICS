@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import SystemSettings, TransportEnquiry
+from .email_utils import send_shipment_email
 from .permissions import IsSuperAdmin
 from .serializers import (
     AdminLoginSerializer,
@@ -103,6 +104,17 @@ def reconcile_verified_payment(enquiry, transaction):
     )
     if not was_paid:
         payment_reference = enquiry.payment_reference or enquiry.reference_number
+        send_shipment_email(
+            enquiry.email,
+            f"Payment confirmed for shipment {enquiry.reference_number}",
+            (
+                f"Hello {enquiry.full_name},\n\n"
+                f"We have confirmed your payment of KES {enquiry.quoted_amount:,.2f} "
+                f"for shipment {enquiry.reference_number}.\n"
+                f"Payment reference: {payment_reference}.\n\n"
+                f"Track your shipment: {get_tracking_portal_url()}"
+            ),
+        )
         send_blessed_sms(
             enquiry.phone_number,
             (
@@ -119,6 +131,18 @@ def public_enquiry_create(request):
     serializer = TransportEnquirySerializer(data=request.data)
     if serializer.is_valid():
         enquiry = serializer.save()
+        send_shipment_email(
+            enquiry.email,
+            f"Enquiry received - {enquiry.reference_number}",
+            (
+                f"Hello {enquiry.full_name},\n\n"
+                f"We received your transport enquiry.\n"
+                f"Tracking ID: {enquiry.reference_number}\n"
+                f"Origin: {enquiry.pickup_location}\n"
+                f"Destination: {enquiry.destination}\n\n"
+                f"Track your enquiry: {get_tracking_portal_url()}"
+            ),
+        )
         send_blessed_sms(
             enquiry.phone_number,
             (
@@ -520,6 +544,16 @@ def admin_enquiry_detail(request, enquiry_id):
             and enquiry.status == TransportEnquiry.EnquiryStatus.QUOTED
         )
         if enquiry.quoted_amount is not None and (quote_changed or quote_issued):
+            send_shipment_email(
+                enquiry.email,
+                f"Quote issued for shipment {enquiry.reference_number}",
+                (
+                    f"Hello {enquiry.full_name},\n\n"
+                    f"Your quote for shipment {enquiry.reference_number} is "
+                    f"KES {enquiry.quoted_amount:,.2f}.\n"
+                    f"Please complete payment on the tracking portal: {get_tracking_portal_url()}"
+                ),
+            )
             send_blessed_sms(
                 enquiry.phone_number,
                 (
@@ -534,6 +568,17 @@ def admin_enquiry_detail(request, enquiry_id):
             and enquiry.payment_status == TransportEnquiry.PaymentStatus.PAID
         ):
             payment_reference = enquiry.payment_reference or enquiry.reference_number
+            send_shipment_email(
+                enquiry.email,
+                f"Payment confirmed for shipment {enquiry.reference_number}",
+                (
+                    f"Hello {enquiry.full_name},\n\n"
+                    f"We have confirmed your payment of KES {enquiry.quoted_amount:,.2f} "
+                    f"for shipment {enquiry.reference_number}.\n"
+                    f"Payment reference: {payment_reference}.\n\n"
+                    f"Track your shipment: {get_tracking_portal_url()}"
+                ),
+            )
             send_blessed_sms(
                 enquiry.phone_number,
                 (
@@ -552,16 +597,27 @@ def admin_enquiry_detail(request, enquiry_id):
             status_message = [
                 f"Shipment {enquiry.reference_number} is now {enquiry.get_status_display()}."
             ]
+            status_details = list(status_message)
             if enquiry.current_checkpoint:
                 status_message.append(f"Current location: {enquiry.current_checkpoint}.")
+                status_details.append(f"Current checkpoint: {enquiry.current_checkpoint}.")
             if enquiry.truck_registration:
                 status_message.append(f"Truck: {enquiry.truck_registration}.")
+                status_details.append(f"Truck registration: {enquiry.truck_registration}.")
             driver_details = " ".join(
                 value for value in (enquiry.driver_name, enquiry.driver_phone) if value
             )
             if driver_details:
                 status_message.append(f"Driver: {driver_details}.")
-            status_message.append(f"Track: {get_tracking_portal_url()}")
+                status_details.append(f"Driver: {driver_details}.")
+            tracking_url = get_tracking_portal_url()
+            status_message.append(f"Track: {tracking_url}")
+            status_details.append(f"Track: {tracking_url}")
+            send_shipment_email(
+                enquiry.email,
+                f"Shipment update - {enquiry.reference_number}",
+                f"Hello {enquiry.full_name},\n\n" + "\n".join(status_details),
+            )
             send_blessed_sms(enquiry.phone_number, " ".join(status_message))
 
         return Response(TransportEnquirySerializer(enquiry).data)

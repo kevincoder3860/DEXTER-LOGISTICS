@@ -7,7 +7,6 @@ from decimal import Decimal
 from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
-from django.core import mail
 from django.test import override_settings
 from rest_framework.test import APITestCase
 
@@ -17,11 +16,15 @@ from .sms_utils import send_blessed_sms
 
 
 @override_settings(
-    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-    DEFAULT_FROM_EMAIL="dispatch@example.com",
+    RESEND_API_KEY="resend_test_key",
+    DEFAULT_FROM_EMAIL="Dexter Haulers <onboarding@resend.dev>",
 )
 class ShipmentEmailUtilityTests(APITestCase):
-    def test_sends_email_from_configured_default_sender(self):
+    @patch("transport.email_utils.requests.post")
+    def test_sends_resend_api_payload_with_configured_sender_and_timeout(self, post):
+        response = Mock(status_code=200, ok=True)
+        post.return_value = response
+
         result = send_shipment_email(
             "customer@example.com",
             "Shipment update",
@@ -29,20 +32,34 @@ class ShipmentEmailUtilityTests(APITestCase):
         )
 
         self.assertTrue(result)
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(mail.outbox[0].from_email, "dispatch@example.com")
-        self.assertEqual(mail.outbox[0].to, ["customer@example.com"])
-        self.assertEqual(mail.outbox[0].subject, "Shipment update")
-        self.assertEqual(mail.outbox[0].body, "Your shipment is in transit.")
+        post.assert_called_once_with(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": "Bearer resend_test_key",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": "Dexter Haulers <onboarding@resend.dev>",
+                "to": ["customer@example.com"],
+                "subject": "Shipment update",
+                "text": "Your shipment is in transit.",
+            },
+            timeout=10,
+        )
 
-    def test_missing_or_invalid_recipient_is_skipped(self):
+    @patch("transport.email_utils.requests.post")
+    def test_missing_or_invalid_recipient_is_skipped(self, post):
         self.assertFalse(send_shipment_email("", "Shipment update", "Message"))
         self.assertFalse(send_shipment_email("not-an-email", "Shipment update", "Message"))
-        self.assertEqual(mail.outbox, [])
+        post.assert_not_called()
 
-    @patch("transport.email_utils.send_mail", side_effect=OSError("SMTP unavailable"))
-    def test_email_failure_is_logged_and_does_not_raise(self, send_mail):
-        with self.assertLogs("transport.email_utils", level="ERROR"):
+    @patch("transport.email_utils.requests.post")
+    def test_resend_api_error_response_and_status_are_logged(self, post):
+        response = Mock(status_code=422, ok=False)
+        response.json.return_value = {"message": "Invalid sender"}
+        post.return_value = response
+
+        with self.assertLogs("transport.email_utils", level="ERROR") as captured:
             result = send_shipment_email(
                 "customer@example.com",
                 "Shipment update",
@@ -50,7 +67,25 @@ class ShipmentEmailUtilityTests(APITestCase):
             )
 
         self.assertFalse(result)
-        self.assertFalse(send_mail.call_args.kwargs["fail_silently"])
+        self.assertIn("422", captured.output[-1])
+        self.assertIn("Invalid sender", captured.output[-1])
+
+    @patch("transport.email_utils.requests.post", side_effect=requests.Timeout("Resend timed out"))
+    def test_network_failure_is_logged_and_does_not_raise(self, post):
+        with self.assertLogs("transport.email_utils", level="ERROR"):
+            result = send_shipment_email(
+                "customer@example.com",
+                "Shipment update",
+                "Your shipment is in transit.",
+            )
+        self.assertFalse(result)
+        post.assert_called_once()
+
+    @patch("transport.email_utils.requests.post")
+    @override_settings(RESEND_API_KEY="")
+    def test_missing_resend_key_skips_the_request(self, post):
+        self.assertFalse(send_shipment_email("customer@example.com", "Subject", "Message"))
+        post.assert_not_called()
 
 
 class AdminSuperuserAccessTests(APITestCase):

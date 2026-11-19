@@ -117,6 +117,8 @@ function PublicWebsite() {
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [submittedReference, setSubmittedReference] = useState("");
+  const [referenceCopied, setReferenceCopied] = useState(false);
+  const [referenceCopyError, setReferenceCopyError] = useState("");
 
   // Tracking state
   const [trackingId, setTrackingId] = useState("");
@@ -127,6 +129,34 @@ function PublicWebsite() {
   const updateField = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
   const resetForm = () => {
     setFormData(defaultForm);
+  };
+
+  const copySubmittedReference = async () => {
+    try {
+      await navigator.clipboard.writeText(submittedReference);
+      setReferenceCopied(true);
+      setReferenceCopyError("");
+      window.setTimeout(() => setReferenceCopied(false), 1800);
+    } catch {
+      setReferenceCopied(false);
+      setReferenceCopyError("Copy isn't available here. Select and copy the tracking ID instead.");
+    }
+  };
+
+  const jumpToSubmittedTracking = () => {
+    setTrackingId(submittedReference);
+    setTrackingData(null);
+    setTrackingError("");
+    document.getElementById("tracking")?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const sendAnotherEnquiry = () => {
+    setSent(false);
+    setSubmittedReference("");
+    setReferenceCopied(false);
+    setReferenceCopyError("");
+    setFormMessage({ type: "", text: "" });
+    resetForm();
   };
 
   const formatErrorMessage = errors => {
@@ -182,7 +212,7 @@ function PublicWebsite() {
       if (!reference) throw new Error("Your enquiry was submitted, but no tracking reference was returned. Please contact our team.");
       setSent(true);
       setSubmittedReference(reference);
-      setFormMessage({ type: "success", text: "Your enquiry was submitted successfully." });
+      setFormMessage({ type: "", text: "" });
       resetForm();
     } catch (error) {
       setSent(false);
@@ -322,30 +352,63 @@ function PublicWebsite() {
             <div className="contactLine"><Phone /> <span>Phone: +254 701 429 096 | +254 102 122 122 </span></div>
             <div className="contactLine"><Mail /> <span>Email: dexterlogistics33@gmail.com or Neo2herald@gmail.com</span></div>
           </div>
-          <form className="bookingForm contentCard" onSubmit={handleBooking}>
-            <div className="formTitle">Transport enquiry</div>
-            <div className="cargoLabel">Goods / Cargo</div>
-            <div className="formGrid">
-              <label>Full name<input required value={formData.fullName} onChange={e => updateField("fullName", e.target.value)} placeholder="Your name" /></label>
-              <label>Email address<input required type="email" autoComplete="email" value={formData.email} onChange={e => updateField("email", e.target.value)} placeholder="you@example.com" /></label>
-              <label>Phone number<input required type="tel" value={formData.phoneNumber} onChange={e => updateField("phoneNumber", e.target.value)} placeholder="+254..." /></label>
-              <label>Pickup location<input required value={formData.pickupLocation} onChange={e => updateField("pickupLocation", e.target.value)} placeholder="Town / County" /></label>
-              <label>Destination<input required value={formData.destination} onChange={e => updateField("destination", e.target.value)} placeholder="Town / Country" /></label>
-              <label>Type of goods<input required value={formData.typeOfGoods} onChange={e => updateField("typeOfGoods", e.target.value)} placeholder="Describe the cargo" /></label>
-              <label>Estimated weight<input required value={formData.estimatedWeight} onChange={e => updateField("estimatedWeight", e.target.value)} placeholder="e.g. 2 tonnes" /></label>
-            </div>
-            <label>Additional details<textarea rows="3" value={formData.additionalDetails} onChange={e => updateField("additionalDetails", e.target.value)} placeholder="Preferred date, cargo details, route or other requirements" /></label>
-            <button className="btn primary submitBtn" type="submit" disabled={loading}>{loading ? "Sending..." : "Send enquiry"} <Send size={17} /></button>
-            {formMessage.text && <p className={formMessage.type === "success" ? "successNote" : "errorNote"}>{formMessage.text}</p>}
-            {sent && submittedReference && (
-              <div className="referenceNotice" role="status" aria-live="polite">
-                <strong>Quote tracking reference</strong>
-                <code>{submittedReference}</code>
-                <p>Please copy and keep your reference code safe to track the progress and status of your quote.</p>
-                <a href="#tracking">Track your quote</a>
+          {sent && submittedReference ? (
+            <div className="bookingForm contentCard enquiryConfirmation" role="status" aria-live="polite">
+              <div className="confirmationHeading">
+                <div className="confirmationIcon"><Check size={24} /></div>
+                <div>
+                  <p className="confirmationEyebrow">ENQUIRY RECEIVED</p>
+                  <h3>Thank you for reaching out to Dexter Haulers Limited.</h3>
+                </div>
               </div>
-            )}
-          </form>
+              <p className="confirmationIntro">
+                Your transport enquiry has been submitted successfully. Our team will follow up with you shortly.
+              </p>
+              <div className="confirmationEmailNotice">
+                <Mail size={21} />
+                <p>
+                  <strong>Check your email</strong> (including your Spam/Junk folder) for your enquiry confirmation,
+                  quote updates, and tracking details.
+                </p>
+              </div>
+              <div className="confirmationReference">
+                <div>
+                  <span>Your Tracking ID</span>
+                  <code>{submittedReference}</code>
+                </div>
+                <button type="button" className="copyButton" onClick={copySubmittedReference}>
+                  {referenceCopied ? <Check size={15} /> : <Copy size={15} />}
+                  {referenceCopied ? "Copied" : "Copy"}
+                </button>
+              </div>
+              {referenceCopyError && <p className="confirmationCopyError" role="alert">{referenceCopyError}</p>}
+              <div className="confirmationActions">
+                <button type="button" className="btn primary" onClick={jumpToSubmittedTracking}>
+                  Track this consignment <ArrowRight size={17} />
+                </button>
+                <button type="button" className="btn confirmationSecondary" onClick={sendAnotherEnquiry}>
+                  Send Another Enquiry
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form className="bookingForm contentCard" onSubmit={handleBooking}>
+              <div className="formTitle">Transport enquiry</div>
+              <div className="cargoLabel">Goods / Cargo</div>
+              <div className="formGrid">
+                <label>Full name<input required value={formData.fullName} onChange={e => updateField("fullName", e.target.value)} placeholder="Your name" /></label>
+                <label>Email address<input required type="email" autoComplete="email" value={formData.email} onChange={e => updateField("email", e.target.value)} placeholder="you@example.com" /></label>
+                <label>Phone number<input required type="tel" value={formData.phoneNumber} onChange={e => updateField("phoneNumber", e.target.value)} placeholder="+254..." /></label>
+                <label>Pickup location<input required value={formData.pickupLocation} onChange={e => updateField("pickupLocation", e.target.value)} placeholder="Town / County" /></label>
+                <label>Destination<input required value={formData.destination} onChange={e => updateField("destination", e.target.value)} placeholder="Town / Country" /></label>
+                <label>Type of goods<input required value={formData.typeOfGoods} onChange={e => updateField("typeOfGoods", e.target.value)} placeholder="Describe the cargo" /></label>
+                <label>Estimated weight<input required value={formData.estimatedWeight} onChange={e => updateField("estimatedWeight", e.target.value)} placeholder="e.g. 2 tonnes" /></label>
+              </div>
+              <label>Additional details<textarea rows="3" value={formData.additionalDetails} onChange={e => updateField("additionalDetails", e.target.value)} placeholder="Preferred date, cargo details, route or other requirements" /></label>
+              <button className="btn primary submitBtn" type="submit" disabled={loading}>{loading ? "Sending..." : "Send enquiry"} <Send size={17} /></button>
+              {formMessage.text && <p className={formMessage.type === "success" ? "successNote" : "errorNote"}>{formMessage.text}</p>}
+            </form>
+          )}
         </section>
       </main>
 

@@ -507,3 +507,141 @@
     grid-column:auto;
   }
 }
+
+.enquiryConfirmation {
+  display:grid;
+  gap:20px;
+  border:1px solid #d9e1eb;
+  border-top:4px solid #ff6500;
+  background:linear-gradient(145deg,#fff 0%,#f8fafc 100%);
+  color:#0b192c;
+  box-shadow:0 16px 40px #0b192c16;
+}
+.confirmationHeading {
+  display:flex;
+  align-items:center;
+  gap:16px;
+}
+.confirmationIcon {
+  width:50px;
+  height:50px;
+  flex:0 0 50px;
+  display:grid;
+  place-items:center;
+  border-radius:12px;
+  background:#e9eff7;
+  color:#1e3e62;
+}
+.confirmationEyebrow {
+  margin:0 0 7px;
+  color:#ff6500;
+  font-size:10px;
+  font-weight:900;
+  letter-spacing:1.6px;
+}
+.confirmationHeading h3 {
+  margin:0;
+  color:#0b192c;
+  font:800 clamp(20px,2.4vw,27px)/1.25 Montserrat;
+}
+.confirmationIntro {
+  margin:0;
+  color:#526174;
+  font-size:14px;
+  line-height:1.7;
+}
+.confirmationEmailNotice {
+  display:flex;
+  align-items:flex-start;
+  gap:12px;
+  padding:15px 16px;
+  border:1px solid #ffd1b5;
+  border-radius:8px;
+  background:#fff4ec;
+  color:#253449;
+}
+.confirmationEmailNotice svg {
+  flex:0 0 auto;
+  color:#ff6500;
+}
+.confirmationEmailNotice p {
+  margin:0;
+  font-size:13px;
+  line-height:1.65;
+}
+.confirmationEmailNotice strong {
+  color:#0b192c;
+}
+.confirmationReference {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  padding:15px 16px;
+  border:1px solid #dce4ee;
+  border-radius:8px;
+  background:#f2f5f9;
+}
+.confirmationReference>div {
+  display:grid;
+  gap:7px;
+  min-width:0;
+}
+.confirmationReference span {
+  color:#526174;
+  font-size:10px;
+  font-weight:900;
+  letter-spacing:1px;
+  text-transform:uppercase;
+}
+.confirmationReference code {
+  color:#0b192c;
+  font:800 16px/1.4 "DM Sans",sans-serif;
+  overflow-wrap:anywhere;
+}
+.confirmationReference .copyButton:hover {
+  border-color:#ff6500;
+  color:#ff6500;
+}
+.confirmationCopyError {
+  margin:-12px 0 0;
+  color:#9d2525;
+  font-size:12px;
+}
+.confirmationActions {
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+}
+.confirmationSecondary {
+  border:1px solid #cbd4df;
+  background:#fff;
+  color:#0b192c;
+}
+.confirmationSecondary:hover {
+  border-color:#1e3e62;
+  color:#1e3e62;
+}
+
+@media(max-width:650px) {
+  .enquiryConfirmation {
+    gap:16px;
+    padding:22px 18px;
+  }
+  .confirmationHeading {
+    align-items:flex-start;
+    gap:12px;
+  }
+  .confirmationIcon {
+    width:42px;
+    height:42px;
+    flex-basis:42px;
+  }
+  .confirmationActions {
+    display:grid;
+    grid-template-columns:1fr;
+  }
+  .confirmationActions .btn {
+    width:100%;
+  }
+}

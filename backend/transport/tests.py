@@ -16,13 +16,15 @@ from .sms_utils import send_blessed_sms
 
 
 @override_settings(
-    RESEND_API_KEY="resend_test_key",
-    DEFAULT_FROM_EMAIL="Dexter Haulers <onboarding@resend.dev>",
+    BREVO_API_KEY="brevo_test_key",
+    BREVO_SENDER_EMAIL="sender@example.com",
+    BREVO_SENDER_NAME="Dexter Haulers",
+    DEFAULT_FROM_EMAIL="Dexter Haulers <sender@example.com>",
 )
 class ShipmentEmailUtilityTests(APITestCase):
     @patch("transport.email_utils.requests.post")
-    def test_sends_resend_api_payload_with_configured_sender_and_timeout(self, post):
-        response = Mock(status_code=200, ok=True)
+    def test_sends_brevo_api_payload_with_configured_sender_and_timeout(self, post):
+        response = Mock(status_code=201)
         post.return_value = response
 
         result = send_shipment_email(
@@ -33,19 +35,37 @@ class ShipmentEmailUtilityTests(APITestCase):
 
         self.assertTrue(result)
         post.assert_called_once_with(
-            "https://api.resend.com/emails",
+            "https://api.brevo.com/v3/smtp/email",
             headers={
-                "Authorization": "Bearer resend_test_key",
+                "api-key": "brevo_test_key",
                 "Content-Type": "application/json",
+                "Accept": "application/json",
             },
             json={
-                "from": "Dexter Haulers <onboarding@resend.dev>",
-                "to": ["customer@example.com"],
+                "sender": {
+                    "name": "Dexter Haulers",
+                    "email": "sender@example.com",
+                },
+                "to": [{"email": "customer@example.com"}],
                 "subject": "Shipment update",
-                "text": "Your shipment is in transit.",
+                "textContent": "Your shipment is in transit.",
             },
             timeout=10,
         )
+
+    @patch("transport.email_utils.requests.post")
+    def test_accepts_all_brevo_success_status_codes(self, post):
+        for status_code in (200, 201, 202):
+            with self.subTest(status_code=status_code):
+                post.return_value = Mock(status_code=status_code)
+                self.assertTrue(
+                    send_shipment_email(
+                        "customer@example.com",
+                        "Shipment update",
+                        "Your shipment is in transit.",
+                    )
+                )
+        self.assertEqual(post.call_count, 3)
 
     @patch("transport.email_utils.requests.post")
     def test_missing_or_invalid_recipient_is_skipped(self, post):
@@ -54,9 +74,9 @@ class ShipmentEmailUtilityTests(APITestCase):
         post.assert_not_called()
 
     @patch("transport.email_utils.requests.post")
-    def test_resend_api_error_response_and_status_are_logged(self, post):
+    def test_brevo_api_error_response_and_status_are_logged(self, post):
         response = Mock(status_code=422, ok=False)
-        response.json.return_value = {"message": "Invalid sender"}
+        response.json.return_value = {"message": "Invalid sender", "code": "invalid_parameter"}
         post.return_value = response
 
         with self.assertLogs("transport.email_utils", level="ERROR") as captured:
@@ -70,7 +90,7 @@ class ShipmentEmailUtilityTests(APITestCase):
         self.assertIn("422", captured.output[-1])
         self.assertIn("Invalid sender", captured.output[-1])
 
-    @patch("transport.email_utils.requests.post", side_effect=requests.Timeout("Resend timed out"))
+    @patch("transport.email_utils.requests.post", side_effect=requests.Timeout("Brevo timed out"))
     def test_network_failure_is_logged_and_does_not_raise(self, post):
         with self.assertLogs("transport.email_utils", level="ERROR"):
             result = send_shipment_email(
@@ -82,8 +102,8 @@ class ShipmentEmailUtilityTests(APITestCase):
         post.assert_called_once()
 
     @patch("transport.email_utils.requests.post")
-    @override_settings(RESEND_API_KEY="")
-    def test_missing_resend_key_skips_the_request(self, post):
+    @override_settings(BREVO_API_KEY="")
+    def test_missing_brevo_key_skips_the_request(self, post):
         self.assertFalse(send_shipment_email("customer@example.com", "Subject", "Message"))
         post.assert_not_called()
 

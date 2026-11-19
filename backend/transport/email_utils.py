@@ -7,8 +7,9 @@ from django.core.validators import validate_email
 
 logger = logging.getLogger(__name__)
 
-RESEND_API_URL = "https://api.resend.com/emails"
-RESEND_TIMEOUT_SECONDS = 10
+BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
+BREVO_TIMEOUT_SECONDS = 10
+BREVO_SUCCESS_STATUS_CODES = {200, 201, 202}
 
 
 def send_shipment_email(to_email, subject, message):
@@ -23,33 +24,37 @@ def send_shipment_email(to_email, subject, message):
             logger.warning("Shipment email skipped because the recipient address is invalid.")
             return False
 
-        api_key = settings.RESEND_API_KEY
+        api_key = settings.BREVO_API_KEY
         if not api_key:
-            logger.warning("Shipment email skipped because RESEND_API_KEY is not configured.")
+            logger.warning("Shipment email skipped because BREVO_API_KEY is not configured.")
             return False
 
         response = requests.post(
-            RESEND_API_URL,
+            BREVO_API_URL,
             headers={
-                "Authorization": f"Bearer {api_key}",
+                "api-key": api_key,
                 "Content-Type": "application/json",
+                "Accept": "application/json",
             },
             json={
-                "from": settings.DEFAULT_FROM_EMAIL,
-                "to": [recipient],
+                "sender": {
+                    "name": settings.BREVO_SENDER_NAME,
+                    "email": settings.BREVO_SENDER_EMAIL,
+                },
+                "to": [{"email": recipient}],
                 "subject": subject,
-                "text": message,
+                "textContent": message,
             },
-            timeout=RESEND_TIMEOUT_SECONDS,
+            timeout=BREVO_TIMEOUT_SECONDS,
         )
-        logger.info("Resend email API returned HTTP %s.", response.status_code)
-        if not response.ok:
+        logger.info("Brevo email API returned HTTP %s.", response.status_code)
+        if response.status_code not in BREVO_SUCCESS_STATUS_CODES:
             try:
                 error_response = response.json()
             except ValueError:
                 error_response = response.text
             logger.error(
-                "Resend email API error (HTTP %s): %s",
+                "Brevo email API error (HTTP %s): %s",
                 response.status_code,
                 error_response,
             )

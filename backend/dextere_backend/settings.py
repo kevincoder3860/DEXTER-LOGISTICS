@@ -13,11 +13,10 @@ PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
 PAYSTACK_DEFAULT_EMAIL = os.getenv("PAYSTACK_DEFAULT_EMAIL", "dexterlogistics33@gmail.com")
 BLESSED_TEXTS_API_KEY = os.getenv("BLESSED_TEXTS_API_KEY", "")
 BLESSED_TEXTS_SENDER_ID = os.getenv("BLESSED_TEXTS_SENDER_ID", "")
-RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
-DEFAULT_FROM_EMAIL = os.getenv(
-    "DEFAULT_FROM_EMAIL",
-    "Dexter Haulers <onboarding@resend.dev>",
-)
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
+BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER_EMAIL", "kevinmutai209@gmail.com")
+BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "Dexter Haulers Limited")
+DEFAULT_FROM_EMAIL = f"{BREVO_SENDER_NAME} <{BREVO_SENDER_EMAIL}>"
 DEBUG = "RENDER" not in os.environ
 ALLOWED_HOSTS = [
     host.strip()
